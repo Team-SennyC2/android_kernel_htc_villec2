@@ -1,0 +1,6001 @@
+From 9300ac1947b0735d18e4585c1311a602dc9d64f4 Mon Sep 17 00:00:00 2001
+From: bilalliberty <bilal_liberty@live.com>
+Date: Mon, 25 Nov 2013 11:23:39 +0300
+Subject: [PATCH] wfd + some compilation fixes
+
+---
+ arch/arm/mach-msm/include/mach/board.h   |   37 +
+ drivers/media/video/msm/msm_mctl_buf.c   |   17 +-
+ drivers/media/video/msm/wfd/Makefile     |    0
+ drivers/media/video/msm/wfd/enc-subdev.c | 2424 ++++++++++++++++++++++++++++++
+ drivers/media/video/msm/wfd/enc-subdev.h |   90 ++
+ drivers/media/video/msm/wfd/mdp-subdev.c |  217 +++
+ drivers/media/video/msm/wfd/mdp-subdev.h |   58 +
+ drivers/media/video/msm/wfd/vsg-subdev.c |  691 +++++++++
+ drivers/media/video/msm/wfd/vsg-subdev.h |   99 ++
+ drivers/media/video/msm/wfd/wfd-ioctl.c  | 1645 ++++++++++++++++++++
+ drivers/media/video/msm/wfd/wfd-util.c   |  217 +++
+ drivers/media/video/msm/wfd/wfd-util.h   |   88 ++
+ drivers/media/video/videobuf2-core.c     |   67 +-
+ include/linux/videodev2.h                |   21 +
+ include/media/msm/vcd_property.h         |   10 +
+ include/media/videobuf2-core.h           |    9 +-
+ 16 files changed, 5644 insertions(+), 46 deletions(-)
+ mode change 100644 => 100755 drivers/media/video/msm/wfd/Makefile
+ create mode 100755 drivers/media/video/msm/wfd/enc-subdev.c
+ create mode 100755 drivers/media/video/msm/wfd/enc-subdev.h
+ create mode 100755 drivers/media/video/msm/wfd/mdp-subdev.c
+ create mode 100755 drivers/media/video/msm/wfd/mdp-subdev.h
+ create mode 100755 drivers/media/video/msm/wfd/vsg-subdev.c
+ create mode 100755 drivers/media/video/msm/wfd/vsg-subdev.h
+ create mode 100755 drivers/media/video/msm/wfd/wfd-ioctl.c
+ create mode 100755 drivers/media/video/msm/wfd/wfd-util.c
+ create mode 100755 drivers/media/video/msm/wfd/wfd-util.h
+
+diff --git a/arch/arm/mach-msm/include/mach/board.h b/arch/arm/mach-msm/include/mach/board.h
+index d371a7e..204a0ac 100644
+--- a/arch/arm/mach-msm/include/mach/board.h
++++ b/arch/arm/mach-msm/include/mach/board.h
+@@ -226,6 +226,11 @@ enum rawchip_enable_type {
+ 	RAWCHIP_MIPI_BYPASS,
+ };
+ 
++enum hdr_mode_type {
++	NON_HDR_MODE,
++	HDR_MODE,
++};
++
+ enum msm_camera_type {
+ 	BACK_CAMERA_2D,
+ 	FRONT_CAMERA_2D,
+@@ -302,6 +307,13 @@ struct msm_camera_i2c_conf {
+ 	enum msm_camera_i2c_mux_mode i2c_mux_mode;
+ };
+ 
++enum msm_camera_pixel_order_default {
++	MSM_CAMERA_PIXEL_ORDER_GR,
++	MSM_CAMERA_PIXEL_ORDER_RG,
++	MSM_CAMERA_PIXEL_ORDER_BG,
++	MSM_CAMERA_PIXEL_ORDER_GB,
++};
++
+ struct msm_camera_sensor_platform_info {
+ 	int mount_angle;
+ 	int sensor_reset;
+@@ -317,6 +329,7 @@ struct msm_camera_sensor_platform_info {
+ 	int vcm_pwd;
+ 	int vcm_enable;
+ 	int privacy_light;
++	enum msm_camera_pixel_order_default pixel_order_default;	
+ 	enum sensor_flip_mirror_info mirror_flip;
+ 	void *privacy_light_info;
+ 	
+@@ -350,6 +363,17 @@ struct msm_eeprom_info {
+ 	int bus_id;
+ };
+ 
++enum htc_camera_image_type_board {
++	HTC_CAMERA_IMAGE_NONE_BOARD,
++	HTC_CAMERA_IMAGE_YUSHANII_BOARD,
++	HTC_CAMERA_IMAGE_MAX_BOARD,
++};
++
++enum cam_vcm_onoff_type {
++	CAM_VCM_OFF,
++	CAM_VCM_ON,
++};
++
+ struct msm_camera_sensor_info {
+ 	const char *sensor_name;
+ 	int sensor_reset_enable;
+@@ -381,7 +405,11 @@ struct msm_camera_sensor_info {
+ 	struct msm_camera_gpio_conf *gpio_conf;
+ 	int (*camera_power_on)(void);
+ 	int (*camera_power_off)(void);
++	void (*camera_yushanii_probed)(enum htc_camera_image_type_board);
++	enum htc_camera_image_type_board htc_image;	
+ 	int use_rawchip;
++	int hdr_mode;
++	int video_hdr_capability;
+ #if 1 
+ 	
+ 	void(*camera_clk_switch)(void);
+@@ -495,6 +523,7 @@ struct msm_panel_common_pdata {
+ 	unsigned num_mdp_clk;
+ 	int *mdp_core_clk_table;
+ 	u32 mdp_max_clk;
++	u32 mdp_min_clk;
+ #ifdef CONFIG_MSM_BUS_SCALING
+ 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
+ #endif
+@@ -503,6 +532,8 @@ struct msm_panel_common_pdata {
+ 	u32 ov1_wb_size;  
+ 	u32 mem_hid;
+ 	char cont_splash_enabled;
++	u32 splash_screen_addr;
++	u32 splash_screen_size;
+ 	char mdp_iommu_split_domain;
+ 	int (*mdp_color_enhance)(void);
+ 	int (*mdp_gamma)(void);
+@@ -556,6 +587,11 @@ struct mipi_dsi_phy_ctrl {
+ 	uint32_t pll[21];
+ };
+ 
++struct mipi_dsi_reg_set {
++	uint32_t reg;
++	uint32_t value;
++};
++
+ struct mipi_dsi_panel_platform_data {
+ 	int fpga_ctrl_mode;
+ 	int fpga_3d_config_addr;
+@@ -801,3 +837,4 @@ extern int dying_processors_read_proc(char *page, char **start, off_t off,
+ 
+ extern int get_partition_num_by_name(char *name);
+ #endif
++
+diff --git a/drivers/media/video/msm/msm_mctl_buf.c b/drivers/media/video/msm/msm_mctl_buf.c
+index 1d37e9c..3445292 100644
+--- a/drivers/media/video/msm/msm_mctl_buf.c
++++ b/drivers/media/video/msm/msm_mctl_buf.c
+@@ -35,9 +35,10 @@
+ #endif
+ 
+ static int msm_vb2_ops_queue_setup(struct vb2_queue *vq,
++					const struct v4l2_format *fmt,
+ 					unsigned int *num_buffers,
+ 					unsigned int *num_planes,
+-					unsigned long sizes[],
++					unsigned int sizes[],
+ 					void *alloc_ctxs[])
+ {
+ 	
+@@ -53,9 +54,9 @@ static int msm_vb2_ops_queue_setup(struct vb2_queue *vq,
+ 
+ 	*num_planes = pcam_inst->plane_info.num_planes;
+ 	for (i = 0; i < pcam_inst->vid_fmt.fmt.pix_mp.num_planes; i++) {
+-		sizes[i] = PAGE_ALIGN(pcam_inst->plane_info.plane[i].size);
+-		D("%s Inst %p : Plane %d Offset = %d Size = %ld"
+-			"Aligned Size = %ld", __func__, pcam_inst, i,
++		sizes[i] = pcam_inst->plane_info.plane[i].size;
++		D("%s Inst %p : Plane %d Offset = %d Size = %ld" \
++			"Aligned Size = %d\n", __func__, pcam_inst, i,
+ 			pcam_inst->plane_info.plane[i].offset,
+ 			pcam_inst->plane_info.plane[i].size, sizes[i]);
+ 	}
+@@ -150,7 +151,7 @@ static int msm_vb2_ops_buf_prepare(struct vb2_buffer *vb)
+ 	struct msm_cam_v4l2_dev_inst *pcam_inst;
+ 	struct msm_cam_v4l2_device *pcam;
+ 	struct msm_frame_buffer *buf;
+-	struct vb2_queue	*vq = NULL;
++	struct vb2_queue *vq;
+ 
+ 	D("%s\n", __func__);
+ 	if (!vb) {
+@@ -275,7 +276,7 @@ static void msm_vb2_ops_buf_cleanup(struct vb2_buffer *vb)
+ 	buf->state = MSM_BUFFER_STATE_UNUSED;
+ }
+ 
+-static int msm_vb2_ops_start_streaming(struct vb2_queue *q)
++static int msm_vb2_ops_start_streaming(struct vb2_queue *q, unsigned int count)
+ {
+ 	return 0;
+ }
+@@ -665,8 +666,8 @@ int msm_mctl_reserve_free_buf(
+ 		++pcam_inst->no_free_buf_cnt;
+ 		if (pcam_inst->no_free_buf_cnt < 50 ||
+ 			pcam_inst->no_free_buf_cnt % 5 == 0)
+-			pr_info("%s: No free buffer available: inst = 0x%p, cnt %d\n",
+-				__func__, pcam_inst, pcam_inst->no_free_buf_cnt);
++			pr_info("%s: No free buffer available: image_mode=%d inst = 0x%p, cnt %d\n",
++				__func__, image_mode, pcam_inst, pcam_inst->no_free_buf_cnt);
+ 	}
+ 	spin_unlock_irqrestore(&pcam_inst->vq_irqlock, flags);
+ 	return rc;
+diff --git a/drivers/media/video/msm/wfd/Makefile b/drivers/media/video/msm/wfd/Makefile
+old mode 100644
+new mode 100755
+diff --git a/drivers/media/video/msm/wfd/enc-subdev.c b/drivers/media/video/msm/wfd/enc-subdev.c
+new file mode 100755
+index 0000000..02b517f
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/enc-subdev.c
+@@ -0,0 +1,2424 @@
++/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 and
++* only version 2 as published by the Free Software Foundation.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*
++*/
++
++#include <media/v4l2-subdev.h>
++#include <mach/iommu_domains.h>
++#include "enc-subdev.h"
++#include "wfd-util.h"
++#include <media/msm/vcd_api.h>
++#include <media/msm/vidc_init.h>
++#include <media/msm/vcd_property.h>
++#include <linux/time.h>
++#include <linux/ktime.h>
++
++#define VID_ENC_MAX_ENCODER_CLIENTS 1
++#define MAX_NUM_CTRLS 20
++
++static long venc_fill_outbuf(struct v4l2_subdev *sd, void *arg);
++
++struct venc_inst {
++	struct video_client_ctx venc_client;
++	void *cbdata;
++	void (*op_buffer_done)(void *cookie, u32 status,
++			struct vb2_buffer *buf);
++	void (*ip_buffer_done)(void *cookie, u32 status,
++			struct mem_region *mregion);
++	u32 width;
++	u32 height;
++	int secure;
++	struct mem_region unqueued_op_bufs;
++	bool streaming;
++	enum venc_framerate_modes framerate_mode;
++};
++
++struct venc {
++	s32 device_handle;
++	void *virt_base;
++	struct venc_inst venc_clients[VID_ENC_MAX_ENCODER_CLIENTS];
++	struct mutex lock;
++	struct ion_client *iclient;
++};
++
++static struct venc venc_p;
++
++static void *venc_map_dev_base_addr(void *device_name)
++{
++		return venc_p.virt_base;
++}
++
++static void venc_interrupt_deregister(void)
++{
++}
++
++static void venc_interrupt_register(void *device_name)
++{
++}
++
++static void venc_interrupt_clear(void)
++{
++}
++
++int venc_load_fw(struct v4l2_subdev *sd)
++{
++	return !vidc_load_firmware();
++}
++
++static u32 venc_get_empty_client_index(void)
++{
++	u32 i;
++	u32 found = false;
++
++	for (i = 0; i < VID_ENC_MAX_ENCODER_CLIENTS; i++) {
++		if (!venc_p.venc_clients[i].venc_client.vcd_handle) {
++			found = true;
++			break;
++		}
++	}
++	if (!found) {
++		WFD_MSG_ERR("%s():ERROR No space for new client\n",
++				__func__);
++		return -ENOMEM;
++	}
++	WFD_MSG_INFO("%s(): available client index = %u\n",
++				__func__, i);
++	return i;
++}
++
++int venc_init(struct v4l2_subdev *sd, u32 val)
++{
++	struct vcd_init_config vcd_init_config;
++	mutex_init(&venc_p.lock);
++	venc_p.virt_base = vidc_get_ioaddr();
++	vcd_init_config.device_name = "VIDC";
++	vcd_init_config.map_dev_base_addr = venc_map_dev_base_addr;
++	vcd_init_config.interrupt_clr = venc_interrupt_clear;
++	vcd_init_config.register_isr = venc_interrupt_register;
++	vcd_init_config.deregister_isr = venc_interrupt_deregister;
++	vcd_init(&vcd_init_config, &venc_p.device_handle);
++	return 0;
++}
++
++static void venc_notify_client(struct video_client_ctx *client_ctx)
++{
++	if (client_ctx)
++		complete(&client_ctx->event);
++}
++
++static void venc_open_done(struct video_client_ctx *client_ctx,
++	struct vcd_handle_container *handle_container)
++{
++	if (client_ctx) {
++		if (handle_container)
++			client_ctx->vcd_handle = handle_container->handle;
++		else
++			WFD_MSG_ERR("handle_container is NULL\n");
++		venc_notify_client(client_ctx);
++	} else
++		WFD_MSG_ERR("ERROR. client_ctx is NULL");
++}
++
++static void venc_start_done(struct video_client_ctx *client_ctx, u32 status)
++{
++	if (client_ctx)
++		venc_notify_client(client_ctx);
++	else
++		WFD_MSG_ERR("ERROR. client_ctx is NULL");
++}
++
++static void venc_stop_done(struct video_client_ctx *client_ctx, u32 status)
++{
++	WFD_MSG_DBG("Inside venc_stop_done: E\n");
++	if (client_ctx)
++		venc_notify_client(client_ctx);
++	else
++		WFD_MSG_ERR("ERROR. client_ctx is NULL");
++	WFD_MSG_DBG("Inside venc_stop_done: X\n");
++}
++
++static void venc_cb(u32 event, u32 status, void *info, u32 size, void *handle,
++		void *const client_data)
++{
++	struct venc_inst *inst = client_data;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct vb2_buffer *vbuf;
++	struct mem_region *mregion;
++	struct vcd_frame_data *frame_data = (struct vcd_frame_data *)info;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Client context is NULL\n");
++		return;
++	}
++	client_ctx->event_status = status;
++	switch (event) {
++	case VCD_EVT_RESP_OPEN:
++		WFD_MSG_DBG("EVENT: open done = %d\n", event);
++		venc_open_done(client_ctx,
++				(struct vcd_handle_container *)info);
++		break;
++	case VCD_EVT_RESP_INPUT_DONE:
++	case VCD_EVT_RESP_INPUT_FLUSHED:
++		WFD_MSG_DBG("EVENT: input done = %d\n", event);
++		mregion = (struct mem_region *)
++			frame_data->frm_clnt_data;
++		inst->ip_buffer_done(inst->cbdata, status, mregion);
++		break;
++	case VCD_EVT_RESP_OUTPUT_DONE:
++	case VCD_EVT_RESP_OUTPUT_FLUSHED:
++		WFD_MSG_DBG("EVENT: output done = %d\n", event);
++		vbuf = (struct vb2_buffer *)
++			frame_data->frm_clnt_data;
++		vbuf->v4l2_planes[0].bytesused =
++			frame_data->data_len;
++
++		switch (frame_data->frame) {
++		case VCD_FRAME_I:
++		case VCD_FRAME_IDR:
++			vbuf->v4l2_buf.flags |= V4L2_BUF_FLAG_KEYFRAME;
++			break;
++		case VCD_FRAME_P:
++			vbuf->v4l2_buf.flags |= V4L2_BUF_FLAG_PFRAME;
++			break;
++		case VCD_FRAME_B:
++			vbuf->v4l2_buf.flags |= V4L2_BUF_FLAG_BFRAME;
++			break;
++		default:
++			break;
++		}
++
++		vbuf->v4l2_buf.timestamp =
++			ns_to_timeval(frame_data->time_stamp * NSEC_PER_USEC);
++
++		WFD_MSG_DBG("bytes used %d, ts: %d.%d, frame type is %d\n",
++				frame_data->data_len,
++				(int)vbuf->v4l2_buf.timestamp.tv_sec,
++				(int)vbuf->v4l2_buf.timestamp.tv_usec,
++				frame_data->frame);
++
++		{
++			unsigned long kvaddr, phys_addr;
++			s32 buffer_index = -1, ion_flags = 0;
++			struct ion_handle *ion_handle;
++			int pmem_fd;
++			struct file *filp;
++			bool rc;
++
++			rc = vidc_lookup_addr_table(client_ctx,
++					BUFFER_TYPE_OUTPUT, true,
++					(unsigned long *)&frame_data->
++					frm_clnt_data, &kvaddr, &phys_addr,
++					&pmem_fd, &filp, &buffer_index);
++
++			if (rc)
++				ion_flags = vidc_get_fd_info(client_ctx,
++					BUFFER_TYPE_OUTPUT, pmem_fd,
++					kvaddr, buffer_index, &ion_handle);
++			else
++				WFD_MSG_ERR("Got an output buffer that we "
++						"couldn't recognize!\n");
++
++			if (msm_ion_do_cache_op(client_ctx->user_ion_client,
++				ion_handle, &kvaddr, frame_data->data_len,
++				ION_IOC_CLEAN_INV_CACHES))
++				WFD_MSG_ERR("OP buffer flush failed\n");
++
++		}
++
++		inst->op_buffer_done(inst->cbdata, status, vbuf);
++		break;
++	case VCD_EVT_RESP_START:
++		WFD_MSG_DBG("EVENT: start done = %d\n", event);
++		venc_start_done(client_ctx, status);
++		
++		break;
++	case VCD_EVT_RESP_STOP:
++		WFD_MSG_DBG("EVENT: not expected = %d\n", event);
++		venc_stop_done(client_ctx, status);
++		break;
++	case VCD_EVT_RESP_FLUSH_INPUT_DONE:
++	case VCD_EVT_RESP_FLUSH_OUTPUT_DONE:
++		venc_notify_client(client_ctx);
++		break;
++	case VCD_EVT_RESP_PAUSE:
++	case VCD_EVT_IND_OUTPUT_RECONFIG:
++		WFD_MSG_DBG("EVENT: not expected = %d\n", event);
++		break;
++	case VCD_EVT_IND_HWERRFATAL:
++	case VCD_EVT_IND_RESOURCES_LOST:
++		WFD_MSG_DBG("EVENT: error = %d\n", event);
++		break;
++	default:
++		WFD_MSG_ERR("Invalid event type = %u\n", event);
++		break;
++	}
++}
++
++static long venc_open(struct v4l2_subdev *sd, void *arg)
++{
++	u32 client_index;
++	int rc = 0;
++	struct venc_inst *inst;
++	struct video_client_ctx *client_ctx;
++	struct venc_msg_ops *vmops  =  arg;
++	int flags = 0;
++	mutex_lock(&venc_p.lock);
++	client_index = venc_get_empty_client_index();
++	if (client_index < 0) {
++		WFD_MSG_ERR("No free clients, client_index = %d\n",
++				client_index);
++		rc = -ENODEV;
++		goto no_free_client;
++	}
++	inst = &venc_p.venc_clients[client_index];
++	client_ctx = &inst->venc_client;
++	init_completion(&client_ctx->event);
++	mutex_init(&client_ctx->msg_queue_lock);
++	mutex_init(&client_ctx->enrty_queue_lock);
++	INIT_LIST_HEAD(&client_ctx->msg_queue);
++	init_waitqueue_head(&client_ctx->msg_wait);
++	inst->op_buffer_done = vmops->op_buffer_done;
++	inst->ip_buffer_done = vmops->ip_buffer_done;
++	INIT_LIST_HEAD(&inst->unqueued_op_bufs.list);
++	inst->cbdata = vmops->cbdata;
++	inst->secure = vmops->secure;
++	inst->streaming = false;
++	inst->framerate_mode = VENC_MODE_VFR;
++
++	if (vmops->secure) {
++		WFD_MSG_ERR("OPENING SECURE SESSION\n");
++		flags |= VCD_CP_SESSION;
++	}
++	if (vcd_get_ion_status()) {
++		client_ctx->user_ion_client = vcd_get_ion_client();
++		if (!client_ctx->user_ion_client) {
++			WFD_MSG_ERR("vcd_open ion get client failed");
++			return -EFAULT;
++		}
++	}
++
++	rc = vcd_open(venc_p.device_handle, false, venc_cb,
++				inst, flags);
++	if (rc) {
++		WFD_MSG_ERR("vcd_open failed, rc = %d\n", rc);
++		rc = -ENODEV;
++		goto no_free_client;
++	}
++	wait_for_completion(&client_ctx->event);
++	if (client_ctx->event_status) {
++		WFD_MSG_ERR("callback for vcd_open returned error: %u",
++				client_ctx->event_status);
++		goto no_free_client;
++	}
++	WFD_MSG_ERR("NOTE: client_ctx = %p\n", client_ctx);
++	vmops->cookie = inst;
++	sd->dev_priv = inst;
++no_free_client:
++	mutex_unlock(&venc_p.lock);
++	return rc;
++}
++
++static long venc_close(struct v4l2_subdev *sd, void *arg)
++{
++	long rc = 0;
++	struct venc_inst *inst;
++	struct video_client_ctx *client_ctx = NULL;
++	mutex_lock(&venc_p.lock);
++	inst = sd->dev_priv;
++	client_ctx = &inst->venc_client;
++	if (!client_ctx || !client_ctx->vcd_handle) {
++		WFD_MSG_ERR("Invalid client context in close\n");
++		rc = -ENODEV;
++		goto end;
++	}
++	rc = vcd_close(client_ctx->vcd_handle);
++	if (rc) {
++		WFD_MSG_ERR("Failed to close encoder subdevice\n");
++		goto end;
++	}
++	memset((void *)client_ctx, 0,
++			sizeof(struct video_client_ctx));
++end:
++	mutex_unlock(&venc_p.lock);
++	return rc;
++}
++
++static long venc_get_buffer_req(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct v4l2_requestbuffers *b = arg;
++	struct vcd_buffer_requirement buf_req;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid client context");
++		rc = -EINVAL;
++		goto err;
++	}
++	rc = vcd_get_buffer_requirements(client_ctx->vcd_handle,
++			VCD_BUFFER_OUTPUT, &buf_req);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get out buf reqs rc = %d", rc);
++		goto err;
++	}
++
++	buf_req.actual_count = b->count = max(buf_req.min_count, b->count);
++	rc = vcd_set_buffer_requirements(client_ctx->vcd_handle,
++			VCD_BUFFER_OUTPUT, &buf_req);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set out buf reqs rc = %d", rc);
++		goto err;
++	}
++
++err:
++	return rc;
++}
++
++static long venc_set_buffer_req(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct bufreq *b = arg;
++	struct vcd_buffer_requirement buf_req;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	int aligned_width, aligned_height;
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid client context");
++		rc = -EINVAL;
++		goto err;
++	}
++	aligned_width = ALIGN(b->width, 16);
++	aligned_height = ALIGN(b->height, 16);
++
++	if (aligned_width != b->width) {
++		WFD_MSG_ERR("Width not 16 byte aligned\n");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	buf_req.actual_count = b->count;
++	buf_req.min_count = b->count;
++	buf_req.max_count = b->count;
++	buf_req.sz = ALIGN(aligned_height * aligned_width, SZ_2K)
++		+ ALIGN(aligned_height * aligned_width * 1/2, SZ_2K);
++	buf_req.align = SZ_4K;
++	inst->width = b->width;
++	inst->height = b->height;
++	rc = vcd_set_buffer_requirements(client_ctx->vcd_handle,
++			VCD_BUFFER_INPUT, &buf_req);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get out buf reqs rc = %d", rc);
++		goto err;
++	}
++	b->size = buf_req.sz;
++err:
++	return rc;
++}
++
++static long venc_start(struct v4l2_subdev *sd)
++{
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct mem_region *curr = NULL, *temp = NULL;
++	int rc;
++	if (!client_ctx) {
++		WFD_MSG_ERR("Client context is NULL");
++		return -EINVAL;
++	}
++
++	rc = vcd_encode_start(client_ctx->vcd_handle);
++	if (rc) {
++		WFD_MSG_ERR("vcd_encode_start failed, rc = %d\n", rc);
++		goto err;
++	}
++	wait_for_completion(&client_ctx->event);
++	if (client_ctx->event_status)
++		WFD_MSG_ERR("callback for vcd_encode_start returned error: %u",
++				client_ctx->event_status);
++
++	inst->streaming = true;
++	
++	list_for_each_entry_safe(curr, temp,
++			&inst->unqueued_op_bufs.list, list) {
++		venc_fill_outbuf(sd, curr);
++		list_del(&curr->list);
++		kfree(curr);
++	}
++err:
++	return rc;
++}
++
++static long venc_stop(struct v4l2_subdev *sd)
++{
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct mem_region *curr = NULL, *temp = NULL;
++	int rc;
++	if (!client_ctx) {
++		WFD_MSG_ERR("Client context is NULL");
++		return -EINVAL;
++	}
++	rc = vcd_stop(client_ctx->vcd_handle);
++	wait_for_completion(&client_ctx->event);
++	inst->streaming = false;
++	
++	list_for_each_entry_safe(curr, temp,
++			&inst->unqueued_op_bufs.list, list) {
++		inst->op_buffer_done(inst->cbdata, 0,
++				(struct vb2_buffer *)curr->cookie);
++		list_del(&curr->list);
++		kfree(curr);
++	}
++	return rc;
++}
++
++static long venc_set_codec(struct video_client_ctx *client_ctx, __s32 codec)
++{
++	struct vcd_property_codec vcd_property_codec;
++	struct vcd_property_hdr vcd_property_hdr;
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++	vcd_property_codec.codec = VCD_CODEC_H264;
++
++	switch (codec) {
++	case V4L2_PIX_FMT_H264:
++		vcd_property_codec.codec = VCD_CODEC_H264;
++		break;
++	case V4L2_PIX_FMT_MPEG4:
++		vcd_property_codec.codec = VCD_CODEC_MPEG4;
++		break;
++	default:
++		WFD_MSG_ERR("Codec not supported, defaulting to h264\n");
++		break;
++	}
++	return vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++}
++
++static long venc_set_codec_level(struct video_client_ctx *client_ctx,
++					__s32 codec, __s32 level)
++{
++	struct vcd_property_level vcd_property_level;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_codec vcd_property_codec;
++
++	int rc = 0;
++	int mpeg4_base = VCD_LEVEL_MPEG4_0;
++	int h264_base = VCD_LEVEL_H264_1;
++
++	
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting codec property");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	if (!((vcd_property_codec.codec == VCD_CODEC_H264
++		&& codec == V4L2_CID_MPEG_VIDEO_H264_LEVEL) ||
++		(vcd_property_codec.codec == VCD_CODEC_MPEG4
++		&& codec == V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL))) {
++		WFD_MSG_ERR("Attempting to set %d for codec type %d",
++			codec, vcd_property_codec.codec);
++		rc = -EINVAL;
++		goto err;
++	}
++
++	
++	vcd_property_hdr.prop_id = VCD_I_LEVEL;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_level);
++
++	if (codec == V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL) {
++		vcd_property_level.level = mpeg4_base + level;
++
++		if (vcd_property_level.level < VCD_LEVEL_MPEG4_0
++			|| vcd_property_level.level > VCD_LEVEL_MPEG4_X) {
++			WFD_MSG_ERR("Level (%d) out of range"
++					"for codec (%d)\n", level, codec);
++
++			rc = -EINVAL;
++			goto err;
++		}
++	} else if (codec == V4L2_CID_MPEG_VIDEO_H264_LEVEL) {
++		vcd_property_level.level = h264_base + level;
++
++		if (vcd_property_level.level < VCD_LEVEL_H264_1
++			|| vcd_property_level.level > VCD_LEVEL_H264_5p1) {
++			WFD_MSG_ERR("Level (%d) out of range"
++					"for codec (%d)\n", level, codec);
++
++			rc = -EINVAL;
++			goto err;
++		}
++	} else {
++		WFD_MSG_ERR("Codec (%d) not supported, not setting level (%d)",
++				codec, level);
++		rc = -ENOTSUPP;
++		goto err;
++	}
++
++	rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_level);
++err:
++	return rc;
++}
++
++static long venc_get_codec_level(struct video_client_ctx *client_ctx,
++					__s32 codec, __s32 *level)
++{
++	struct vcd_property_level vcd_property_level;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_codec vcd_property_codec;
++
++	int rc = 0;
++	int mpeg4_base = VCD_LEVEL_MPEG4_0;
++	int h264_base = VCD_LEVEL_H264_1;
++
++	
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting codec property");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	if (!((vcd_property_codec.codec == VCD_CODEC_H264
++		&& codec == V4L2_CID_MPEG_VIDEO_H264_LEVEL) ||
++		(vcd_property_codec.codec == VCD_CODEC_MPEG4
++		&& codec == V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL))) {
++		WFD_MSG_ERR("Attempting to get %d for codec type %d",
++			codec, vcd_property_codec.codec);
++		rc = -EINVAL;
++		goto err;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_LEVEL;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_level);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_level);
++	if (rc < 0) {
++		rc = -EINVAL;
++		goto err;
++	}
++
++	if (codec == V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL) {
++		*level = vcd_property_level.level - mpeg4_base;
++	} else if (codec == V4L2_CID_MPEG_VIDEO_H264_LEVEL) {
++		*level = vcd_property_level.level - h264_base;
++	} else {
++		WFD_MSG_ERR("Codec (%d) not supported", codec);
++		rc = -ENOTSUPP;
++		goto err;
++	}
++
++err:
++	return rc;
++}
++
++static long venc_set_codec_profile(struct video_client_ctx *client_ctx,
++					__s32 codec, __s32 profile)
++{
++	struct vcd_property_profile vcd_property_profile;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_codec vcd_property_codec;
++	struct vcd_property_i_period vcd_property_i_period;
++	int rc = 0;
++
++	
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting codec property");
++		rc = -EINVAL;
++		goto err_set_profile;
++	}
++
++	if (!((vcd_property_codec.codec == VCD_CODEC_H264
++		&& codec == V4L2_CID_MPEG_VIDEO_H264_PROFILE) ||
++		(vcd_property_codec.codec == VCD_CODEC_MPEG4
++		&& codec == V4L2_CID_MPEG_VIDEO_MPEG4_PROFILE))) {
++		WFD_MSG_ERR("Attempting to set %d for codec type %d",
++			codec, vcd_property_codec.codec);
++		rc = -EINVAL;
++		goto err_set_profile;
++	}
++
++	
++	vcd_property_hdr.prop_id = VCD_I_PROFILE;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_profile);
++
++	if (codec == V4L2_CID_MPEG_VIDEO_MPEG4_PROFILE) {
++		switch (profile) {
++		case V4L2_MPEG_VIDEO_MPEG4_PROFILE_SIMPLE:
++			vcd_property_profile.profile = VCD_PROFILE_MPEG4_SP;
++			break;
++		case V4L2_MPEG_VIDEO_MPEG4_PROFILE_ADVANCED_SIMPLE:
++			vcd_property_profile.profile = VCD_PROFILE_MPEG4_ASP;
++			break;
++		default:
++			WFD_MSG_ERR("Profile %d not supported,"
++					"defaulting to simple (%d)",
++					profile, VCD_PROFILE_MPEG4_SP);
++			vcd_property_profile.profile = VCD_PROFILE_MPEG4_SP;
++			break;
++		}
++	} else if (codec == V4L2_CID_MPEG_VIDEO_H264_PROFILE) {
++		switch (profile) {
++		case V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE:
++			vcd_property_profile.profile =
++				VCD_PROFILE_H264_BASELINE;
++			break;
++		case V4L2_MPEG_VIDEO_H264_PROFILE_MAIN:
++			vcd_property_profile.profile = VCD_PROFILE_H264_MAIN;
++			break;
++		case V4L2_MPEG_VIDEO_H264_PROFILE_HIGH:
++			vcd_property_profile.profile = VCD_PROFILE_H264_HIGH;
++			break;
++		default:
++			WFD_MSG_ERR("Profile %d not supported,"
++					"defaulting to baseline (%d)",
++					profile, VCD_PROFILE_H264_BASELINE);
++			vcd_property_profile.profile =
++				VCD_PROFILE_H264_BASELINE;
++			break;
++		}
++	} else {
++		WFD_MSG_ERR("Codec (%d) not supported,"
++				"not setting profile (%d)",
++				codec, profile);
++		rc = -ENOTSUPP;
++		goto err_set_profile;
++	}
++
++	rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_profile);
++
++	
++	vcd_property_hdr.prop_id = VCD_I_INTRA_PERIOD;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_i_period);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_i_period);
++	if (rc) {
++		WFD_MSG_ERR("Error getting I-period property");
++		goto err_set_profile;
++	}
++	vcd_property_i_period.b_frames = 0;
++	rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_i_period);
++	if (rc) {
++		WFD_MSG_ERR("Error setting I-period property");
++		goto err_set_profile;
++	}
++
++err_set_profile:
++	return rc;
++}
++
++static long venc_get_codec_profile(struct video_client_ctx *client_ctx,
++		__s32 codec, __s32 *profile)
++{
++	struct vcd_property_profile vcd_property_profile;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_codec vcd_property_codec;
++	int rc = 0;
++
++	
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting codec property");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	if (!((vcd_property_codec.codec == VCD_CODEC_H264
++		&& codec == V4L2_CID_MPEG_VIDEO_H264_PROFILE) ||
++		(vcd_property_codec.codec == VCD_CODEC_MPEG4
++		&& codec == V4L2_CID_MPEG_VIDEO_MPEG4_PROFILE))) {
++		WFD_MSG_ERR("Attempting to set %d for codec type %d",
++			codec, vcd_property_codec.codec);
++		rc = -EINVAL;
++		goto err;
++	}
++
++	
++	vcd_property_hdr.prop_id = VCD_I_PROFILE;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_profile);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_profile);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Unable to get property");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	switch (vcd_property_profile.profile) {
++	case VCD_PROFILE_MPEG4_SP:
++		*profile = V4L2_MPEG_VIDEO_MPEG4_PROFILE_SIMPLE;
++		break;
++	case VCD_PROFILE_MPEG4_ASP:
++		*profile = V4L2_MPEG_VIDEO_MPEG4_PROFILE_ADVANCED_SIMPLE;
++		break;
++	case VCD_PROFILE_H264_BASELINE:
++		*profile = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
++		break;
++	case VCD_PROFILE_H264_MAIN:
++		*profile = V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
++		break;
++	case VCD_PROFILE_H264_HIGH:
++		*profile = V4L2_MPEG_VIDEO_H264_PROFILE_HIGH;
++		break;
++	default:
++		WFD_MSG_ERR("Unexpected profile");
++		rc = -EINVAL;
++		goto err;
++		break;
++	}
++err:
++	return rc;
++}
++
++static long venc_set_h264_intra_period(struct video_client_ctx *client_ctx,
++		__s32 period)
++{
++	struct vcd_property_i_period vcd_property_i_period;
++	struct vcd_property_codec vcd_property_codec;
++	struct vcd_property_hdr vcd_property_hdr;
++	int rc = 0;
++
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting codec property\n");
++		goto err;
++	}
++
++	if (vcd_property_codec.codec != VCD_CODEC_H264) {
++		rc = -ENOTSUPP;
++		WFD_MSG_ERR("Control not supported for non H264 codec\n");
++		goto err;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_INTRA_PERIOD;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_i_period);
++
++	vcd_property_i_period.p_frames = period - 1;
++	vcd_property_i_period.b_frames = 0;
++
++	rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_i_period);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error setting intra period\n");
++		goto err;
++	}
++
++err:
++	return rc;
++}
++
++static long venc_get_h264_intra_period(struct video_client_ctx *client_ctx,
++		__s32 *period)
++{
++	struct vcd_property_i_period vcd_property_i_period;
++	struct vcd_property_codec vcd_property_codec;
++	struct vcd_property_hdr vcd_property_hdr;
++	int rc = 0;
++
++	vcd_property_hdr.prop_id = VCD_I_CODEC;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_codec);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting codec property\n");
++		goto err;
++	}
++
++	if (vcd_property_codec.codec != VCD_CODEC_H264) {
++		rc = -ENOTSUPP;
++		WFD_MSG_ERR("Control not supported for non H264 codec\n");
++		goto err;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_INTRA_PERIOD;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_i_period);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_i_period);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Error getting intra period\n");
++		goto err;
++	}
++
++	*period = vcd_property_i_period.p_frames + 1;
++err:
++	return rc;
++}
++
++static long venc_request_frame(struct video_client_ctx *client_ctx, __s32 type)
++{
++	struct vcd_property_req_i_frame vcd_property_req_i_frame;
++	struct vcd_property_hdr vcd_property_hdr;
++
++	int rc = 0;
++	switch (type) {
++	case V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_DISABLED:
++		
++		break;
++	case V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_I_FRAME:
++		vcd_property_hdr.prop_id = VCD_I_REQ_IFRAME;
++		vcd_property_hdr.sz = sizeof(struct vcd_property_req_i_frame);
++		vcd_property_req_i_frame.req_i_frame = 1;
++
++		rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_property_req_i_frame);
++		break;
++	case V4L2_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE_NOT_CODED:
++	default:
++		rc = -ENOTSUPP;
++	}
++
++	return rc;
++}
++
++static long venc_set_bitrate(struct video_client_ctx *client_ctx,
++			__s32 bitrate)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_target_bitrate bit_rate;
++	if (!client_ctx || !bitrate)
++		return -EINVAL;
++
++	vcd_property_hdr.prop_id = VCD_I_TARGET_BITRATE;
++	vcd_property_hdr.sz =
++			sizeof(struct vcd_property_target_bitrate);
++	bit_rate.target_bitrate = bitrate;
++	return vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &bit_rate);
++}
++
++static long venc_get_bitrate(struct video_client_ctx *client_ctx,
++			__s32 *bitrate)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_target_bitrate bit_rate;
++	int rc = 0;
++
++	if (!client_ctx || !bitrate)
++		return -EINVAL;
++
++	vcd_property_hdr.prop_id = VCD_I_TARGET_BITRATE;
++	vcd_property_hdr.sz =
++			sizeof(struct vcd_property_target_bitrate);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &bit_rate);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Failed getting property for bitrate");
++		return rc;
++	}
++
++	*bitrate = bit_rate.target_bitrate;
++	return rc;
++}
++
++static long venc_set_bitrate_mode(struct video_client_ctx *client_ctx,
++			__s32 mode)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_rate_control rate_control;
++	int rc = 0;
++
++	if (!client_ctx) {
++		rc = -EINVAL;
++		goto err;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_RATE_CONTROL;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_rate_control);
++	switch (mode) {
++	case V4L2_MPEG_VIDEO_BITRATE_MODE_VBR:
++		rate_control.rate_control = VCD_RATE_CONTROL_VBR_VFR;
++		break;
++	case V4L2_MPEG_VIDEO_BITRATE_MODE_CBR:
++		rate_control.rate_control = VCD_RATE_CONTROL_CBR_VFR;
++		break;
++	default:
++		WFD_MSG_ERR("unknown bitrate mode %d", mode);
++		rc = -EINVAL;
++		goto err;
++	}
++
++	rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &rate_control);
++err:
++	return rc;
++}
++
++static long venc_get_bitrate_mode(struct video_client_ctx *client_ctx,
++			__s32 *mode)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_rate_control rate_control;
++	int rc = 0;
++
++	if (!client_ctx)
++		return -EINVAL;
++
++	vcd_property_hdr.prop_id = VCD_I_RATE_CONTROL;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_rate_control);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &rate_control);
++
++	switch (rate_control.rate_control) {
++	case VCD_RATE_CONTROL_CBR_VFR:
++	case VCD_RATE_CONTROL_CBR_CFR:
++		*mode = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
++		break;
++	case VCD_RATE_CONTROL_VBR_VFR:
++	case VCD_RATE_CONTROL_VBR_CFR:
++		*mode = V4L2_MPEG_VIDEO_BITRATE_MODE_VBR;
++		break;
++	default:
++		WFD_MSG_ERR("unknown bitrate mode %d",
++				rate_control.rate_control);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static long venc_set_frame_size(struct video_client_ctx *client_ctx,
++				u32 height, u32 width)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_frame_size frame_size;
++	vcd_property_hdr.prop_id = VCD_I_FRAME_SIZE;
++	vcd_property_hdr.sz =
++		sizeof(struct vcd_property_frame_size);
++	frame_size.height = height;
++	frame_size.width = width;
++	return vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &frame_size);
++}
++
++static long venc_set_format(struct v4l2_subdev *sd, void *arg)
++{
++	struct venc_inst *inst;
++	struct video_client_ctx *client_ctx;
++	struct v4l2_format *fmt = arg;
++	struct vcd_buffer_requirement buf_req;
++	int rc = 0;
++
++	inst = sd->dev_priv;
++	client_ctx = &inst->venc_client;
++	if (!inst || !client_ctx || !fmt) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		return -EINVAL;
++	}
++	rc = venc_set_codec(client_ctx, fmt->fmt.pix.pixelformat);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set codec, rc = %d\n", rc);
++		goto err;
++	}
++
++	rc = venc_set_frame_size(client_ctx, fmt->fmt.pix.height,
++				fmt->fmt.pix.width);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set frame size, rc = %d\n", rc);
++		goto err;
++	}
++	rc = vcd_get_buffer_requirements(client_ctx->vcd_handle,
++			VCD_BUFFER_OUTPUT, &buf_req);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get buf requrements, rc = %d\n", rc);
++		goto err;
++	}
++	fmt->fmt.pix.sizeimage = buf_req.sz;
++err:
++	return rc;
++}
++
++static long venc_set_framerate(struct v4l2_subdev *sd,
++				void *arg)
++{
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct v4l2_fract *frate = arg;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_frame_rate vcd_frame_rate;
++	struct vcd_property_vop_timing_constant_delta vcd_delta;
++	int rc;
++	vcd_property_hdr.prop_id = VCD_I_FRAME_RATE;
++	vcd_property_hdr.sz =
++				sizeof(struct vcd_property_frame_rate);
++	
++	vcd_frame_rate.fps_denominator = frate->numerator;
++	vcd_frame_rate.fps_numerator = frate->denominator;
++	rc = vcd_set_property(client_ctx->vcd_handle,
++					&vcd_property_hdr, &vcd_frame_rate);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set frame rate, rc = %d\n", rc);
++		goto set_framerate_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_VOP_TIMING_CONSTANT_DELTA;
++	vcd_property_hdr.sz = sizeof(vcd_delta);
++
++	vcd_delta.constant_delta = (frate->numerator * USEC_PER_SEC) /
++					frate->denominator;
++	rc = vcd_set_property(client_ctx->vcd_handle,
++					&vcd_property_hdr, &vcd_delta);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to set frame delta, rc = %d", rc);
++		goto set_framerate_fail;
++	}
++
++set_framerate_fail:
++	return rc;
++}
++
++static long venc_set_framerate_mode(struct v4l2_subdev *sd,
++				void *arg)
++{
++	struct venc_inst *inst = sd->dev_priv;
++	inst->framerate_mode = *(enum venc_framerate_modes *)arg;
++	return 0;
++}
++
++static long venc_set_qp_value(struct video_client_ctx *client_ctx,
++		__s32 frametype, __s32 qp)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_session_qp vcd_property_session_qp;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		return -EINVAL;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_SESSION_QP;
++	vcd_property_hdr.sz = sizeof(vcd_property_session_qp);
++
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_session_qp);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get session qp\n");
++		goto err;
++	}
++
++	switch (frametype) {
++	case V4L2_CID_MPEG_VIDEO_H264_I_FRAME_QP:
++		vcd_property_session_qp.i_frame_qp = qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_P_FRAME_QP:
++		vcd_property_session_qp.p_frame_qp = qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_B_FRAME_QP:
++		vcd_property_session_qp.b_frame_qp = qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_H263_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_B_FRAME_QP:
++		rc = -ENOTSUPP;
++		goto err;
++	default:
++		rc = -EINVAL;
++		goto err;
++	}
++
++
++	rc = vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_session_qp);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to set session qp\n");
++		goto err;
++	}
++err:
++	return rc;
++}
++
++static long venc_get_qp_value(struct video_client_ctx *client_ctx,
++		__s32 frametype, __s32 *qp)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_session_qp vcd_property_session_qp;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		return -EINVAL;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_SESSION_QP;
++	vcd_property_hdr.sz = sizeof(vcd_property_session_qp);
++
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_session_qp);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get session qp\n");
++		goto err;
++	}
++
++	switch (frametype) {
++	case V4L2_CID_MPEG_VIDEO_MPEG4_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_I_FRAME_QP:
++		*qp = vcd_property_session_qp.i_frame_qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_MPEG4_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_P_FRAME_QP:
++		*qp = vcd_property_session_qp.p_frame_qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_MPEG4_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_B_FRAME_QP:
++		*qp = vcd_property_session_qp.b_frame_qp;
++		break;
++	default:
++		rc = -EINVAL;
++		goto err;
++	}
++
++err:
++	return rc;
++}
++
++static long venc_set_qp_range(struct video_client_ctx *client_ctx,
++		__s32 type, __s32 qp)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_qp_range vcd_property_qp_range;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		return -EINVAL;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_QP_RANGE;
++	vcd_property_hdr.sz = sizeof(vcd_property_qp_range);
++
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_qp_range);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get qp range\n");
++		goto err;
++	}
++
++	switch (type) {
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MIN_QP:
++		vcd_property_qp_range.min_qp = qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MAX_QP:
++		vcd_property_qp_range.max_qp = qp;
++		break;
++	default:
++		rc = -EINVAL;
++		goto err;
++	}
++
++	rc = vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_qp_range);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to set qp range\n");
++		goto err;
++	}
++err:
++	return rc;
++}
++
++static long venc_get_qp_range(struct video_client_ctx *client_ctx,
++		__s32 type, __s32 *qp)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_qp_range vcd_property_qp_range;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		return -EINVAL;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_QP_RANGE;
++	vcd_property_hdr.sz = sizeof(vcd_property_qp_range);
++
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_qp_range);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get qp range\n");
++		goto err;
++	}
++
++	switch (type) {
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MIN_QP:
++		*qp = vcd_property_qp_range.min_qp;
++		break;
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MAX_QP:
++		*qp = vcd_property_qp_range.max_qp;
++		break;
++	default:
++		rc = -EINVAL;
++		goto err;
++	}
++
++	rc = vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_property_qp_range);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to set qp range\n");
++		goto err;
++	}
++err:
++	return rc;
++}
++static long venc_set_max_perf_level(struct video_client_ctx *client_ctx,
++		__s32 value)
++{
++	int rc = 0;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_perf_level perf;
++	int level = 0;
++
++	switch (value) {
++	case V4L2_CID_MPEG_QCOM_PERF_LEVEL_PERFORMANCE:
++		level = VCD_PERF_LEVEL2;
++		break;
++	case V4L2_CID_MPEG_QCOM_PERF_LEVEL_TURBO:
++		level = VCD_PERF_LEVEL_TURBO;
++		break;
++	default:
++		WFD_MSG_ERR("Unknown performance level: %d\n", value);
++		rc = -ENOTSUPP;
++		goto err_set_perf_level;
++	}
++
++	vcd_property_hdr.prop_id = VCD_REQ_PERF_LEVEL;
++	vcd_property_hdr.sz =
++		sizeof(struct vcd_property_perf_level);
++	perf.level = level;
++	rc = vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &perf);
++err_set_perf_level:
++	return rc;
++}
++
++static long venc_set_avc_delimiter(struct video_client_ctx *client_ctx,
++			__s32 flag)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_avc_delimiter_enable delimiter_flag;
++	if (!client_ctx)
++		return -EINVAL;
++
++	vcd_property_hdr.prop_id = VCD_I_ENABLE_DELIMITER_FLAG;
++	vcd_property_hdr.sz =
++			sizeof(struct vcd_property_avc_delimiter_enable);
++	delimiter_flag.avc_delimiter_enable_flag = flag;
++	return vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &delimiter_flag);
++}
++
++static long venc_get_avc_delimiter(struct video_client_ctx *client_ctx,
++			__s32 *flag)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_avc_delimiter_enable delimiter_flag;
++	int rc = 0;
++
++	if (!client_ctx || !flag)
++		return -EINVAL;
++
++	vcd_property_hdr.prop_id = VCD_I_ENABLE_DELIMITER_FLAG;
++	vcd_property_hdr.sz =
++			sizeof(struct vcd_property_avc_delimiter_enable);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &delimiter_flag);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Failed getting property for delimiter");
++		return rc;
++	}
++
++	*flag = delimiter_flag.avc_delimiter_enable_flag;
++	return rc;
++}
++
++static long venc_set_vui_timing_info(struct video_client_ctx *client_ctx,
++			struct venc_inst *inst, __s32 flag)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_vui_timing_info_enable vui_timing_info_enable;
++
++	if (!client_ctx)
++		return -EINVAL;
++	if (inst->framerate_mode == VENC_MODE_VFR) {
++		WFD_MSG_ERR("VUI timing info not suported in VFR mode ");
++		return -EINVAL;
++	}
++	vcd_property_hdr.prop_id = VCD_I_ENABLE_VUI_TIMING_INFO;
++	vcd_property_hdr.sz =
++			sizeof(struct vcd_property_vui_timing_info_enable);
++	vui_timing_info_enable.vui_timing_info = flag;
++	return vcd_set_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vui_timing_info_enable);
++}
++
++static long venc_get_vui_timing_info(struct video_client_ctx *client_ctx,
++			__s32 *flag)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_vui_timing_info_enable vui_timing_info_enable;
++	int rc = 0;
++
++	if (!client_ctx || !flag)
++		return -EINVAL;
++
++	vcd_property_hdr.prop_id = VCD_I_ENABLE_VUI_TIMING_INFO;
++	vcd_property_hdr.sz =
++			sizeof(struct vcd_property_vui_timing_info_enable);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vui_timing_info_enable);
++
++	if (rc < 0) {
++		WFD_MSG_ERR("Failed getting property for VUI timing info");
++		return rc;
++	}
++
++	*flag = vui_timing_info_enable.vui_timing_info;
++	return rc;
++}
++
++static long venc_set_header_mode(struct video_client_ctx *client_ctx,
++		__s32 mode)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_sps_pps_for_idr_enable sps_pps_for_idr_enable;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_ENABLE_SPS_PPS_FOR_IDR;
++	vcd_property_hdr.sz = sizeof(sps_pps_for_idr_enable);
++	switch (mode) {
++	case V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE:
++		sps_pps_for_idr_enable.sps_pps_for_idr_enable_flag = 0;
++		break;
++	case V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_I_FRAME:
++		sps_pps_for_idr_enable.sps_pps_for_idr_enable_flag = 1;
++		break;
++	case V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME:
++	default:
++		WFD_MSG_ERR("Video header mode %d not supported\n",
++				mode);
++		rc = -ENOTSUPP;
++		goto err;
++	}
++
++	rc =  vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&sps_pps_for_idr_enable);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set enable_sps_pps_for_idr\n");
++		goto err;
++	}
++err:
++	return rc;
++}
++
++static long venc_get_header_mode(struct video_client_ctx *client_ctx,
++		__s32 *mode)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_sps_pps_for_idr_enable sps_pps_for_idr_enable;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto err;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_ENABLE_SPS_PPS_FOR_IDR;
++	vcd_property_hdr.sz = sizeof(sps_pps_for_idr_enable);
++	rc =  vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&sps_pps_for_idr_enable);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get sps/pps for idr enable\n");
++		goto err;
++	}
++
++	*mode = sps_pps_for_idr_enable.sps_pps_for_idr_enable_flag ?
++		V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_I_FRAME :
++		V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE;
++err:
++	return rc;
++}
++
++static long venc_set_multislicing_mode(struct video_client_ctx *client_ctx,
++			__u32 control, __s32 value)
++{
++	int rc = 0;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_frame_size vcd_frame_size;
++	struct vcd_buffer_requirement vcd_buf_req;
++	struct vcd_property_multi_slice vcd_multi_slice;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto set_multislicing_mode_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_FRAME_SIZE;
++	vcd_property_hdr.sz =
++		sizeof(vcd_frame_size);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_frame_size);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get frame size\n");
++		goto set_multislicing_mode_fail;
++	}
++
++	rc = vcd_get_buffer_requirements(client_ctx->vcd_handle,
++			VCD_BUFFER_OUTPUT, &vcd_buf_req);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get buf reqs\n");
++		goto set_multislicing_mode_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_MULTI_SLICE;
++	vcd_property_hdr.sz = sizeof(vcd_multi_slice);
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_multi_slice);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get multi slice\n");
++		goto set_multislicing_mode_fail;
++	}
++
++	switch (control) {
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_BYTES:
++		if (vcd_multi_slice.m_slice_sel !=
++				VCD_MSLICE_BY_BYTE_COUNT) {
++			WFD_MSG_ERR("Not in proper mode\n");
++			goto set_multislicing_mode_fail;
++		}
++		vcd_multi_slice.m_slice_size = value;
++		break;
++
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB:
++		if (vcd_multi_slice.m_slice_sel !=
++				VCD_MSLICE_BY_MB_COUNT) {
++			WFD_MSG_ERR("Not in proper mode\n");
++			goto set_multislicing_mode_fail;
++		}
++		vcd_multi_slice.m_slice_size = value;
++		break;
++
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE:
++		switch (value) {
++		case V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE:
++			vcd_multi_slice.m_slice_sel = VCD_MSLICE_OFF;
++			break;
++		case V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB:
++			vcd_multi_slice.m_slice_sel = VCD_MSLICE_BY_MB_COUNT;
++			vcd_multi_slice.m_slice_size =
++				(vcd_frame_size.stride / 16) *
++				(vcd_frame_size.scan_lines / 16);
++			break;
++		case V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES:
++			vcd_multi_slice.m_slice_sel = VCD_MSLICE_BY_BYTE_COUNT;
++			vcd_multi_slice.m_slice_size = vcd_buf_req.sz;
++			break;
++		default:
++			WFD_MSG_ERR("Unrecognized mode %d\n", value);
++			rc = -ENOTSUPP;
++			goto set_multislicing_mode_fail;
++		}
++
++		break;
++	default:
++		rc = -EINVAL;
++		goto set_multislicing_mode_fail;
++	}
++
++	rc = vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_multi_slice);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set multi slice\n");
++		goto set_multislicing_mode_fail;
++	}
++
++set_multislicing_mode_fail:
++	return rc;
++}
++
++static long venc_get_multislicing_mode(struct video_client_ctx *client_ctx,
++			__u32 control, __s32 *value)
++{
++	int rc = 0;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_frame_size vcd_frame_size;
++	struct vcd_buffer_requirement vcd_buf_req;
++	struct vcd_property_multi_slice vcd_multi_slice;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto get_multislicing_mode_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_FRAME_SIZE;
++	vcd_property_hdr.sz =
++		sizeof(vcd_frame_size);
++	rc = vcd_get_property(client_ctx->vcd_handle,
++				&vcd_property_hdr, &vcd_frame_size);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get frame size\n");
++		goto get_multislicing_mode_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_MULTI_SLICE;
++	vcd_property_hdr.sz = sizeof(vcd_multi_slice);
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&vcd_multi_slice);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get multi slice\n");
++		goto get_multislicing_mode_fail;
++	}
++
++	rc = vcd_get_buffer_requirements(client_ctx->vcd_handle,
++			VCD_BUFFER_OUTPUT, &vcd_buf_req);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get buf reqs\n");
++		goto get_multislicing_mode_fail;
++	}
++
++	switch (control) {
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_BYTES:
++		if (vcd_multi_slice.m_slice_sel == VCD_MSLICE_BY_BYTE_COUNT)
++			*value = vcd_multi_slice.m_slice_size;
++		else {
++			WFD_MSG_ERR("Invalid query when in slice mode %d\n",
++					vcd_multi_slice.m_slice_sel);
++			rc = -EINVAL;
++			goto get_multislicing_mode_fail;
++		}
++		break;
++
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB:
++		if (vcd_multi_slice.m_slice_sel == VCD_MSLICE_BY_MB_COUNT)
++			*value = vcd_multi_slice.m_slice_size;
++		else {
++			WFD_MSG_ERR("Invalid query when in slice mode %d\n",
++					vcd_multi_slice.m_slice_sel);
++			rc = -EINVAL;
++			goto get_multislicing_mode_fail;
++		}
++		break;
++
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE:
++		switch (vcd_multi_slice.m_slice_sel) {
++		case VCD_MSLICE_OFF:
++			*value = V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE;
++			break;
++		case VCD_MSLICE_BY_MB_COUNT:
++			*value = V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_MB;
++			break;
++		case VCD_MSLICE_BY_BYTE_COUNT:
++			*value = V4L2_MPEG_VIDEO_MULTI_SICE_MODE_MAX_BYTES;
++			break;
++		default:
++			WFD_MSG_ERR("Encoder in an unknown mode %d\n",
++					vcd_multi_slice.m_slice_sel);
++			rc = -ENOENT;
++			goto get_multislicing_mode_fail;
++
++		}
++		break;
++	default:
++		rc = -EINVAL;
++		goto get_multislicing_mode_fail;
++	}
++
++get_multislicing_mode_fail:
++	return rc;
++}
++
++static long venc_set_entropy_mode(struct video_client_ctx *client_ctx,
++		__s32 value)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_entropy_control entropy_control;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto set_entropy_mode_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_ENTROPY_CTRL;
++	vcd_property_hdr.sz = sizeof(entropy_control);
++
++	switch (value) {
++	case V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC:
++		entropy_control.entropy_sel = VCD_ENTROPY_SEL_CAVLC;
++		break;
++	case V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC:
++		entropy_control.entropy_sel = VCD_ENTROPY_SEL_CABAC;
++		entropy_control.cabac_model = VCD_CABAC_MODEL_NUMBER_0;
++		break;
++	default:
++		WFD_MSG_ERR("Entropy type %d not supported\n", value);
++		rc = -ENOTSUPP;
++		goto set_entropy_mode_fail;
++	}
++	rc = vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&entropy_control);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set entropy mode\n");
++		goto set_entropy_mode_fail;
++	}
++
++set_entropy_mode_fail:
++	return rc;
++}
++
++static long venc_get_entropy_mode(struct video_client_ctx *client_ctx,
++		__s32 *value)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_entropy_control entropy_control;
++	int rc = 0;
++
++	if (!client_ctx || !value) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto get_entropy_mode_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_ENTROPY_CTRL;
++	vcd_property_hdr.sz = sizeof(entropy_control);
++
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&entropy_control);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get entropy mode\n");
++		goto get_entropy_mode_fail;
++	}
++
++	switch (entropy_control.entropy_sel) {
++	case VCD_ENTROPY_SEL_CAVLC:
++		*value = V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC;
++		break;
++	case VCD_ENTROPY_SEL_CABAC:
++		*value = V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC;
++		break;
++	default:
++		WFD_MSG_ERR("Entropy type %d not known\n",
++				entropy_control.entropy_sel);
++		rc = -EINVAL;
++		goto get_entropy_mode_fail;
++	}
++get_entropy_mode_fail:
++	return rc;
++}
++
++static long venc_set_cyclic_intra_refresh_mb(
++		struct video_client_ctx *client_ctx,
++		__s32 value)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_intra_refresh_mb_number cir_mb_num;
++	int rc = 0;
++
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto set_cir_mbs_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_INTRA_REFRESH;
++	vcd_property_hdr.sz = sizeof(cir_mb_num);
++
++	cir_mb_num.cir_mb_number = value;
++
++	rc = vcd_set_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&cir_mb_num);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set CIR MBs\n");
++		goto set_cir_mbs_fail;
++	}
++
++set_cir_mbs_fail:
++	return rc;
++}
++
++static long venc_get_cyclic_intra_refresh_mb(
++		struct video_client_ctx *client_ctx,
++		__s32 *value)
++{
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_intra_refresh_mb_number cir_mb_num;
++	int rc = 0;
++
++	if (!client_ctx || !value) {
++		WFD_MSG_ERR("Invalid parameters\n");
++		rc = -EINVAL;
++		goto get_cir_mbs_fail;
++	}
++
++	vcd_property_hdr.prop_id = VCD_I_INTRA_REFRESH;
++	vcd_property_hdr.sz = sizeof(cir_mb_num);
++
++	rc = vcd_get_property(client_ctx->vcd_handle, &vcd_property_hdr,
++			&cir_mb_num);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set CIR MBs\n");
++		goto get_cir_mbs_fail;
++	}
++
++	*value = cir_mb_num.cir_mb_number;
++
++get_cir_mbs_fail:
++	return rc;
++}
++static long venc_set_input_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	struct mem_region *mregion = arg;
++	struct venc_inst *inst = sd->dev_priv;
++	unsigned long paddr, kvaddr, temp;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	int rc = 0;
++
++	if (!client_ctx || !mregion) {
++		WFD_MSG_ERR("Invalid input\n");
++		rc = -EINVAL;
++		goto ins_table_fail;
++	}
++
++	kvaddr = (unsigned long)mregion->kvaddr;
++	paddr = (unsigned long)mregion->paddr;
++
++	if (!kvaddr || !paddr) {
++		WFD_MSG_ERR("Invalid addresses\n");
++		rc = -EINVAL;
++		goto ins_table_fail;
++	}
++
++	rc = vidc_insert_addr_table_kernel(client_ctx,
++		BUFFER_TYPE_INPUT, kvaddr, kvaddr,
++		paddr, 32, mregion->size);
++
++	if (rc == (u32)false) {
++		WFD_MSG_ERR("Failed to insert input buffer into table\n");
++		rc = -EFAULT;
++		goto ins_table_fail;
++	}
++
++	rc = vcd_set_buffer(client_ctx->vcd_handle,
++			VCD_BUFFER_INPUT, (u8 *)kvaddr,
++			mregion->size);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to set input buffer\n");
++		rc = -EFAULT;
++		goto set_input_buf_fail;
++	}
++
++
++	return rc;
++
++set_input_buf_fail:
++	vidc_delete_addr_table(client_ctx, BUFFER_TYPE_INPUT,
++			kvaddr, &temp);
++ins_table_fail:
++	return rc;
++}
++
++static long venc_set_output_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct mem_region *mregion = arg;
++	if (!client_ctx || !mregion) {
++		WFD_MSG_ERR("Invalid input\n");
++		return -EINVAL;
++	}
++	WFD_MSG_DBG("size = %u, offset = %u fd = %d\n", mregion->size,
++				mregion->offset, mregion->fd);
++	rc = vidc_insert_addr_table(client_ctx, BUFFER_TYPE_OUTPUT,
++					mregion->cookie,
++					(unsigned long *)&mregion->kvaddr,
++					mregion->fd,
++					mregion->offset,
++					32,
++					mregion->size);
++	if (rc == (u32)false) {
++		WFD_MSG_ERR("Failed to insert outbuf in table\n");
++		rc = -EINVAL;
++		goto err;
++	}
++	WFD_MSG_DBG("size = %u, %p\n", mregion->size, mregion->kvaddr);
++
++	rc = vcd_set_buffer(client_ctx->vcd_handle,
++				    VCD_BUFFER_OUTPUT, (u8 *) mregion->kvaddr,
++				    mregion->size);
++	if (rc)
++		WFD_MSG_ERR("Failed to set outbuf on encoder\n");
++err:
++	return rc;
++}
++
++static long venc_fill_outbuf(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct mem_region *mregion = arg;
++	struct vcd_frame_data vcd_frame = {0};
++	unsigned long kernel_vaddr, phy_addr, user_vaddr;
++	int pmem_fd;
++	struct file *file;
++	s32 buffer_index = -1;
++
++	if (inst->streaming) {
++		user_vaddr = mregion->cookie;
++		rc = vidc_lookup_addr_table(client_ctx, BUFFER_TYPE_OUTPUT,
++				true, &user_vaddr,
++				&kernel_vaddr, &phy_addr, &pmem_fd, &file,
++				&buffer_index);
++		if (!rc) {
++			WFD_MSG_ERR("Address lookup failed\n");
++			goto err;
++		}
++		vcd_frame.virtual = (u8 *) kernel_vaddr;
++		vcd_frame.frm_clnt_data = mregion->cookie;
++		vcd_frame.alloc_len = mregion->size;
++
++		rc = vcd_fill_output_buffer(client_ctx->vcd_handle, &vcd_frame);
++		if (rc)
++			WFD_MSG_ERR("Failed to fill output buffer on encoder");
++	} else {
++		struct mem_region *temp = kzalloc(sizeof(*temp), GFP_KERNEL);
++		*temp = *mregion;
++		INIT_LIST_HEAD(&temp->list);
++		list_add_tail(&temp->list, &inst->unqueued_op_bufs.list);
++	}
++err:
++	return rc;
++}
++
++static long venc_encode_frame(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct venc_buf_info *venc_buf = arg;
++	struct mem_region *mregion = venc_buf->mregion;
++	struct vcd_frame_data vcd_input_buffer = {0};
++	int64_t ts = 0;
++
++	ts = venc_buf->timestamp;
++	do_div(ts, NSEC_PER_USEC);
++
++	vcd_input_buffer.virtual = mregion->kvaddr;
++	vcd_input_buffer.frm_clnt_data = (u32)mregion;
++	vcd_input_buffer.ip_frm_tag = (u32)mregion;
++	vcd_input_buffer.data_len = mregion->size;
++	vcd_input_buffer.time_stamp = ts;
++	vcd_input_buffer.offset = 0;
++
++	rc = vcd_encode_frame(client_ctx->vcd_handle,
++			&vcd_input_buffer);
++
++	if (rc)
++		WFD_MSG_ERR("encode frame failed\n");
++	return rc;
++}
++
++static long venc_alloc_recon_buffers(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct vcd_property_hdr vcd_property_hdr;
++	struct vcd_property_buffer_size control;
++	struct vcd_property_enc_recon_buffer *ctrl = NULL;
++	unsigned long phy_addr;
++	int i = 0;
++	int flags = 0;
++	u32 len;
++	control.width = inst->width;
++	control.height = inst->height;
++	vcd_property_hdr.prop_id = VCD_I_GET_RECON_BUFFER_SIZE;
++	vcd_property_hdr.sz = sizeof(struct vcd_property_buffer_size);
++
++	rc = vcd_get_property(client_ctx->vcd_handle,
++					&vcd_property_hdr, &control);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get recon buf size\n");
++		goto err;
++	}
++	flags = ION_HEAP(ION_CP_MM_HEAP_ID);
++	flags |= inst->secure ? ION_SECURE : ION_HEAP(ION_IOMMU_HEAP_ID);
++
++	if (vcd_get_ion_status()) {
++		for (i = 0; i < 4; ++i) {
++			ctrl = &client_ctx->recon_buffer[i];
++			ctrl->buffer_size = control.size;
++			ctrl->pmem_fd = 0;
++			ctrl->offset = 0;
++			ctrl->user_virtual_addr = (void *)i;
++			client_ctx->recon_buffer_ion_handle[i]
++				= ion_alloc(client_ctx->user_ion_client,
++			control.size, SZ_8K, flags);
++
++			ctrl->kernel_virtual_addr = ion_map_kernel(
++				client_ctx->user_ion_client,
++				client_ctx->recon_buffer_ion_handle[i],	0);
++
++			rc = ion_map_iommu(client_ctx->user_ion_client,
++				client_ctx->recon_buffer_ion_handle[i],
++				VIDEO_DOMAIN, VIDEO_MAIN_POOL, SZ_4K,
++				0, &phy_addr, (unsigned long *)&len, 0, 0);
++			if (rc) {
++				WFD_MSG_ERR("Failed to allo recon buffers\n");
++				break;
++			}
++			ctrl->physical_addr =  (u8 *) phy_addr;
++			ctrl->dev_addr = ctrl->physical_addr;
++			vcd_property_hdr.prop_id = VCD_I_RECON_BUFFERS;
++			vcd_property_hdr.sz =
++				sizeof(struct vcd_property_enc_recon_buffer);
++			rc = vcd_set_property(client_ctx->vcd_handle,
++					&vcd_property_hdr, ctrl);
++			if (rc) {
++				WFD_MSG_ERR("Failed to set recon buffers\n");
++				break;
++			}
++		}
++	} else {
++		WFD_MSG_ERR("PMEM not suported\n");
++		return -ENOMEM;
++	}
++err:
++	return rc;
++}
++
++static long venc_free_output_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct mem_region *mregion = arg;
++	unsigned long kernel_vaddr, user_vaddr;
++
++	if (!client_ctx || !mregion) {
++		WFD_MSG_ERR("Invalid input\n");
++		return -EINVAL;
++	}
++
++	user_vaddr = mregion->cookie;
++	rc = vidc_delete_addr_table(client_ctx, BUFFER_TYPE_OUTPUT,
++				user_vaddr,
++				&kernel_vaddr);
++	if (!rc) {
++		WFD_MSG_ERR("Failed to delete buf from address table\n");
++		return -EINVAL;
++	}
++	return vcd_free_buffer(client_ctx->vcd_handle, VCD_BUFFER_OUTPUT,
++					 (u8 *)kernel_vaddr);
++}
++
++static long venc_flush_buffers(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	if (!client_ctx) {
++		WFD_MSG_ERR("Invalid input\n");
++		return -EINVAL;
++	}
++	rc = vcd_flush(client_ctx->vcd_handle, VCD_FLUSH_INPUT);
++	if (rc) {
++		WFD_MSG_ERR("Failed to flush input buffers\n");
++		rc = -EIO;
++		goto flush_failed;
++	}
++	wait_for_completion(&client_ctx->event);
++	if (client_ctx->event_status) {
++		WFD_MSG_ERR("callback for vcd_flush input returned error: %u",
++				client_ctx->event_status);
++		rc = -EIO;
++		goto flush_failed;
++	}
++	rc = vcd_flush(client_ctx->vcd_handle, VCD_FLUSH_OUTPUT);
++	if (rc) {
++		WFD_MSG_ERR("Failed to flush output buffers\n");
++		rc = -EIO;
++		goto flush_failed;
++	}
++	wait_for_completion(&client_ctx->event);
++	if (client_ctx->event_status) {
++		WFD_MSG_ERR("callback for vcd_flush output returned error: %u",
++				client_ctx->event_status);
++		rc = -EIO;
++		goto flush_failed;
++	}
++
++flush_failed:
++	return rc;
++}
++
++static long venc_free_input_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	int del_rc = 0, free_rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct mem_region *mregion = arg;
++	unsigned long vidc_kvaddr;
++
++	if (!client_ctx || !mregion) {
++		WFD_MSG_ERR("Invalid input\n");
++		return -EINVAL;
++	}
++
++	del_rc = vidc_delete_addr_table(client_ctx, BUFFER_TYPE_INPUT,
++				(unsigned long)mregion->kvaddr,
++				&vidc_kvaddr);
++	if (del_rc == (u32)false) {
++		WFD_MSG_ERR("Failed to delete buf from address table\n");
++		del_rc = -ENOKEY;
++	} else if ((u8 *)vidc_kvaddr != mregion->kvaddr) {
++		WFD_MSG_ERR("Failed to find expected buffer\n");
++		del_rc = -EINVAL;
++	} else
++		del_rc = 0;
++
++	free_rc = vcd_free_buffer(client_ctx->vcd_handle, VCD_BUFFER_INPUT,
++					 (u8 *)vidc_kvaddr);
++
++	if (free_rc) {
++		WFD_MSG_ERR("Failed to free buffer from encoder\n");
++		free_rc = -EINVAL;
++	}
++
++	return del_rc ? del_rc : free_rc;
++}
++
++static long venc_free_recon_buffers(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	struct vcd_property_hdr vcd_property_hdr;
++	int i;
++
++	if (vcd_get_ion_status()) {
++		for (i = 0; i < 4; i++) {
++			vcd_property_hdr.prop_id = VCD_I_FREE_RECON_BUFFERS;
++			vcd_property_hdr.sz =
++				sizeof(struct vcd_property_buffer_size);
++			rc = vcd_set_property(client_ctx->vcd_handle,
++			&vcd_property_hdr, &client_ctx->recon_buffer[i]);
++			if (rc)
++				WFD_MSG_ERR("Failed to free recon buffer\n");
++
++			if (client_ctx->recon_buffer_ion_handle[i]) {
++				ion_unmap_iommu(client_ctx->user_ion_client,
++					 client_ctx->recon_buffer_ion_handle[i],
++					 VIDEO_DOMAIN, VIDEO_MAIN_POOL);
++				ion_unmap_kernel(client_ctx->user_ion_client,
++					client_ctx->recon_buffer_ion_handle[i]);
++				ion_free(client_ctx->user_ion_client,
++					client_ctx->recon_buffer_ion_handle[i]);
++				client_ctx->recon_buffer_ion_handle[i] = NULL;
++			}
++		}
++	}
++	return rc;
++}
++
++static long venc_set_property(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct v4l2_control *ctrl = arg;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++	switch (ctrl->id) {
++	case V4L2_CID_MPEG_VIDEO_BITRATE:
++		rc = venc_set_bitrate(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
++		rc = venc_set_bitrate_mode(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_I_PERIOD:
++		rc = venc_set_h264_intra_period(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_LEVEL:
++		rc = venc_set_codec_level(client_ctx, ctrl->id, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
++		rc = venc_set_codec_profile(client_ctx, ctrl->id, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_MFC51_VIDEO_FORCE_FRAME_TYPE:
++		rc = venc_request_frame(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_B_FRAME_QP:
++		rc = venc_set_qp_value(client_ctx, ctrl->id, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MAX_QP:
++		rc = venc_set_qp_range(client_ctx, ctrl->id, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_HEADER_MODE:
++		rc = venc_set_header_mode(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_BYTES:
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB:
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE:
++		rc = venc_set_multislicing_mode(client_ctx, ctrl->id,
++				ctrl->value);
++		break;
++	case V4L2_CID_MPEG_QCOM_SET_PERF_LEVEL:
++		rc = venc_set_max_perf_level(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDC_VIDEO_H264_AU_DELIMITER:
++		rc = venc_set_avc_delimiter(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDC_VIDEO_H264_VUI_TIMING_INFO:
++		rc = venc_set_vui_timing_info(client_ctx, inst, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
++		rc = venc_set_entropy_mode(client_ctx, ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_CYCLIC_INTRA_REFRESH_MB:
++		rc = venc_set_cyclic_intra_refresh_mb(client_ctx, ctrl->value);
++		break;
++	default:
++		WFD_MSG_ERR("Set property not suported: %d\n", ctrl->id);
++		rc = -ENOTSUPP;
++		break;
++	}
++	return rc;
++}
++
++static long venc_get_property(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct venc_inst *inst = sd->dev_priv;
++	struct v4l2_control *ctrl = arg;
++	struct video_client_ctx *client_ctx = &inst->venc_client;
++
++	switch (ctrl->id) {
++	case V4L2_CID_MPEG_VIDEO_BITRATE:
++		rc = venc_get_bitrate(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
++		rc = venc_get_bitrate_mode(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_LEVEL:
++		rc = venc_get_codec_level(client_ctx, ctrl->id, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
++		rc = venc_get_codec_profile(client_ctx, ctrl->id, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_I_PERIOD:
++		rc = venc_get_h264_intra_period(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_B_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_I_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_P_FRAME_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_B_FRAME_QP:
++		rc = venc_get_qp_value(client_ctx, ctrl->id, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_MPEG4_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H263_MAX_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MIN_QP:
++	case V4L2_CID_MPEG_VIDEO_H264_MAX_QP:
++		rc = venc_get_qp_range(client_ctx, ctrl->id, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_HEADER_MODE:
++		rc = venc_get_header_mode(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_BYTES:
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB:
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE:
++		rc = venc_get_multislicing_mode(client_ctx, ctrl->id,
++				&ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
++		rc = venc_get_entropy_mode(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDEO_CYCLIC_INTRA_REFRESH_MB:
++		rc = venc_get_cyclic_intra_refresh_mb(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDC_VIDEO_H264_AU_DELIMITER:
++		rc = venc_get_avc_delimiter(client_ctx, &ctrl->value);
++		break;
++	case V4L2_CID_MPEG_VIDC_VIDEO_H264_VUI_TIMING_INFO:
++		rc = venc_get_vui_timing_info(client_ctx, &ctrl->value);
++		break;
++	default:
++		WFD_MSG_ERR("Get property not suported: %d\n", ctrl->id);
++		rc = -ENOTSUPP;
++		break;
++	}
++	return rc;
++}
++
++long venc_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
++{
++	long rc = 0;
++	switch (cmd) {
++	case OPEN:
++		rc = venc_open(sd, arg);
++		break;
++	case CLOSE:
++		rc = venc_close(sd, arg);
++		break;
++	case ENCODE_START:
++		rc = venc_start(sd);
++		break;
++	case ENCODE_FRAME:
++		venc_encode_frame(sd, arg);
++		break;
++	case ENCODE_STOP:
++		rc = venc_stop(sd);
++		break;
++	case SET_PROP:
++		rc = venc_set_property(sd, arg);
++		break;
++	case GET_PROP:
++		rc = venc_get_property(sd, arg);
++		break;
++	case GET_BUFFER_REQ:
++		rc = venc_get_buffer_req(sd, arg);
++		break;
++	case SET_BUFFER_REQ:
++		rc = venc_set_buffer_req(sd, arg);
++		break;
++	case FREE_BUFFER:
++		break;
++	case FILL_OUTPUT_BUFFER:
++		rc = venc_fill_outbuf(sd, arg);
++		break;
++	case SET_FORMAT:
++		rc = venc_set_format(sd, arg);
++		break;
++	case SET_FRAMERATE:
++		rc = venc_set_framerate(sd, arg);
++		break;
++	case SET_INPUT_BUFFER:
++		rc = venc_set_input_buffer(sd, arg);
++		break;
++	case SET_OUTPUT_BUFFER:
++		rc = venc_set_output_buffer(sd, arg);
++		break;
++	case ALLOC_RECON_BUFFERS:
++		rc = venc_alloc_recon_buffers(sd, arg);
++		break;
++	case FREE_OUTPUT_BUFFER:
++		rc = venc_free_output_buffer(sd, arg);
++		break;
++	case FREE_INPUT_BUFFER:
++		rc = venc_free_input_buffer(sd, arg);
++		break;
++	case FREE_RECON_BUFFERS:
++		rc = venc_free_recon_buffers(sd, arg);
++		break;
++	case ENCODE_FLUSH:
++		rc = venc_flush_buffers(sd, arg);
++		break;
++	case SET_FRAMERATE_MODE:
++		rc = venc_set_framerate_mode(sd, arg);
++		break;
++	default:
++		rc = -1;
++		break;
++	}
++	return rc;
++}
+diff --git a/drivers/media/video/msm/wfd/enc-subdev.h b/drivers/media/video/msm/wfd/enc-subdev.h
+new file mode 100755
+index 0000000..112a6ed
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/enc-subdev.h
+@@ -0,0 +1,90 @@
++/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 and
++* only version 2 as published by the Free Software Foundation.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*
++*/
++
++#ifndef _WFD_ENC_SUBDEV_
++#define _WFD_ENC_SUBDEV_
++
++#include <linux/ion.h>
++#include <media/v4l2-subdev.h>
++#include <media/videobuf2-core.h>
++#define VENC_MAGIC_IOCTL 'V'
++
++enum venc_framerate_modes {
++	VENC_MODE_CFR,
++	VENC_MODE_VFR,
++};
++
++struct mem_region {
++	struct list_head list;
++	u8 *kvaddr;
++	u8 *paddr;
++	u32 size;
++	u32 offset;
++	u32 fd;
++	u32 cookie;
++	struct ion_handle *ion_handle;
++};
++struct bufreq {
++	u32 count;
++	u32 height;
++	u32 width;
++	u32 size;
++};
++
++struct venc_buf_info {
++	u64 timestamp;
++	struct mem_region *mregion;
++};
++
++struct venc_msg_ops {
++	void *cookie;
++	void *cbdata;
++	int secure;
++	void (*op_buffer_done)(void *cookie, u32 status,
++			struct vb2_buffer *buf);
++	void (*ip_buffer_done)(void *cookie, u32 status,
++			struct mem_region *mregion);
++};
++
++#define OPEN  _IOR('V', 1, void *)
++#define CLOSE  _IO('V', 2)
++#define ENCODE_START  _IO('V', 3)
++#define ENCODE_FRAME  _IOW('V', 4, struct venc_buf_info *)
++#define PAUSE  _IO('V', 5)
++#define RESUME  _IO('V', 6)
++#define FLUSH  _IO('V', 7)
++#define ENCODE_STOP  _IO('V', 8)
++#define SET_PROP  _IO('V', 9)
++#define GET_PROP  _IO('V', 10)
++#define SET_BUFFER_REQ  _IOWR('V', 11, struct v4l2_requestbuffers *)
++#define GET_BUFFER_REQ  _IOWR('V', 12, struct v4l2_requestbuffers *)
++#define ALLOCATE_BUFFER  _IO('V', 13)
++#define FREE_BUFFER  _IO('V', 14)
++#define FILL_OUTPUT_BUFFER  _IO('V', 15)
++#define SET_FORMAT _IOW('V', 16, struct v4l2_format *)
++#define SET_FRAMERATE _IOW('V', 17, struct v4l2_fract *)
++#define SET_INPUT_BUFFER _IOWR('V', 18, struct mem_region *)
++#define SET_OUTPUT_BUFFER _IOWR('V', 19, struct mem_region *)
++#define ALLOC_RECON_BUFFERS _IO('V', 20)
++#define FREE_OUTPUT_BUFFER _IOWR('V', 21, struct mem_region *)
++#define FREE_INPUT_BUFFER _IOWR('V', 22, struct mem_region *)
++#define FREE_RECON_BUFFERS _IO('V', 23)
++#define ENCODE_FLUSH _IO('V', 24)
++#define SET_FRAMERATE_MODE _IO('V', 27)
++
++extern int venc_init(struct v4l2_subdev *sd, u32 val);
++extern int venc_load_fw(struct v4l2_subdev *sd);
++extern long venc_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
++
++
++#endif 
+diff --git a/drivers/media/video/msm/wfd/mdp-subdev.c b/drivers/media/video/msm/wfd/mdp-subdev.c
+new file mode 100755
+index 0000000..c9d9ee4
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/mdp-subdev.c
+@@ -0,0 +1,217 @@
++/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 and
++* only version 2 as published by the Free Software Foundation.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*
++*/
++#include "mdp-subdev.h"
++#include "wfd-util.h"
++#include <media/videobuf2-core.h>
++#include <linux/msm_mdp.h>
++
++struct mdp_instance {
++	struct fb_info *mdp;
++	u32 height;
++	u32 width;
++};
++
++int mdp_init(struct v4l2_subdev *sd, u32 val)
++{
++	return 0;
++}
++int mdp_open(struct v4l2_subdev *sd, void *arg)
++{
++	struct mdp_instance *inst = kzalloc(sizeof(struct mdp_instance),
++					GFP_KERNEL);
++	void **cookie = (void **)arg;
++	int rc = 0;
++	struct fb_info *fbi = NULL;
++
++	if (!inst) {
++		WFD_MSG_ERR("Out of memory\n");
++		return -ENOMEM;
++	}
++
++	fbi = msm_fb_get_writeback_fb();
++	if (!fbi) {
++		WFD_MSG_ERR("Failed to acquire mdp instance\n");
++		rc = -ENODEV;
++		goto exit;
++	}
++
++	
++	rc = kobject_uevent(&fbi->dev->kobj, KOBJ_ADD);
++	if (rc) {
++		WFD_MSG_ERR("Failed add to kobj");
++		goto exit;
++	}
++
++	msm_fb_writeback_init(fbi);
++	inst->mdp = fbi;
++	*cookie = inst;
++	return rc;
++exit:
++	kfree(inst);
++	return rc;
++}
++
++int mdp_start(struct v4l2_subdev *sd, void *arg)
++{
++	struct mdp_instance *inst = arg;
++	int rc = 0;
++	struct fb_info *fbi = NULL;
++	if (inst) {
++		rc = msm_fb_writeback_start(inst->mdp);
++		if (rc) {
++			WFD_MSG_ERR("Failed to start MDP mode\n");
++			goto exit;
++		}
++		fbi = msm_fb_get_writeback_fb();
++		if (!fbi) {
++			WFD_MSG_ERR("Failed to acquire mdp instance\n");
++			rc = -ENODEV;
++			goto exit;
++		}
++		rc = kobject_uevent(&fbi->dev->kobj, KOBJ_ONLINE);
++		if (rc)
++			WFD_MSG_ERR("Failed to send ONLINE event\n");
++	}
++exit:
++	return rc;
++}
++int mdp_stop(struct v4l2_subdev *sd, void *arg)
++{
++	struct mdp_instance *inst = arg;
++	int rc = 0;
++	struct fb_info *fbi = NULL;
++	if (inst) {
++		rc = msm_fb_writeback_stop(inst->mdp);
++		if (rc) {
++			WFD_MSG_ERR("Failed to stop writeback mode\n");
++			return rc;
++		}
++		fbi = (struct fb_info *)inst->mdp;
++		rc = kobject_uevent(&fbi->dev->kobj, KOBJ_OFFLINE);
++		if (rc) {
++			WFD_MSG_ERR("Failed to send offline event\n");
++			return -EIO;
++		}
++	}
++	return 0;
++}
++int mdp_close(struct v4l2_subdev *sd, void *arg)
++{
++	struct mdp_instance *inst = arg;
++	struct fb_info *fbi = NULL;
++	if (inst) {
++		fbi = (struct fb_info *)inst->mdp;
++		msm_fb_writeback_terminate(fbi);
++		kfree(inst);
++	}
++	return 0;
++}
++int mdp_q_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct mdp_buf_info *binfo = arg;
++	struct msmfb_data fbdata;
++	struct mdp_instance *inst;
++	if (!binfo || !binfo->inst || !binfo->cookie) {
++		WFD_MSG_ERR("Invalid argument\n");
++		return -EINVAL;
++	}
++	inst = binfo->inst;
++	fbdata.offset = binfo->offset;
++	fbdata.memory_id = binfo->fd;
++	fbdata.iova = binfo->paddr;
++	fbdata.id = 0;
++	fbdata.flags = 0;
++	fbdata.priv = (uint32_t)binfo->cookie;
++
++	WFD_MSG_INFO("queue buffer to mdp with offset = %u,"
++			"fd = %u, priv = %p, iova = %p\n",
++			fbdata.offset, fbdata.memory_id,
++			(void *)fbdata.priv, (void *)fbdata.iova);
++	rc = msm_fb_writeback_queue_buffer(inst->mdp, &fbdata);
++
++	if (rc)
++		WFD_MSG_ERR("Failed to queue buffer\n");
++	return rc;
++}
++int mdp_dq_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	int rc = 0;
++	struct mdp_buf_info *obuf = arg;
++	struct msmfb_data fbdata;
++	struct mdp_instance *inst;
++	if (!arg) {
++		WFD_MSG_ERR("Invalid argument\n");
++		return -EINVAL;
++	}
++
++	inst = obuf->inst;
++	fbdata.flags = MSMFB_WRITEBACK_DEQUEUE_BLOCKING;
++	rc = msm_fb_writeback_dequeue_buffer(inst->mdp, &fbdata);
++	if (rc) {
++		WFD_MSG_ERR("Failed to dequeue buffer\n");
++		return rc;
++	}
++	WFD_MSG_DBG("dequeue buf from mdp with priv = %u\n",
++			fbdata.priv);
++	obuf->cookie = (void *)fbdata.priv;
++	return rc;
++}
++int mdp_set_prop(struct v4l2_subdev *sd, void *arg)
++{
++	struct mdp_prop *prop = (struct mdp_prop *)arg;
++	struct mdp_instance *inst = prop->inst;
++	if (!prop || !inst) {
++		WFD_MSG_ERR("Invalid arguments\n");
++		return -EINVAL;
++	}
++	inst->height = prop->height;
++	inst->width = prop->width;
++	return 0;
++}
++long mdp_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
++{
++	int rc = 0;
++	if (!sd) {
++		WFD_MSG_ERR("Invalid arguments\n");
++		return -EINVAL;
++	}
++	switch (cmd) {
++	case MDP_Q_BUFFER:
++		rc = mdp_q_buffer(sd, arg);
++		break;
++	case MDP_DQ_BUFFER:
++		rc = mdp_dq_buffer(sd, arg);
++		break;
++	case MDP_OPEN:
++		rc = mdp_open(sd, arg);
++		break;
++	case MDP_START:
++		rc = mdp_start(sd, arg);
++		break;
++	case MDP_STOP:
++		rc = mdp_stop(sd, arg);
++		break;
++	case MDP_SET_PROP:
++		rc = mdp_set_prop(sd, arg);
++		break;
++	case MDP_CLOSE:
++		rc = mdp_close(sd, arg);
++		break;
++	default:
++		WFD_MSG_ERR("IOCTL: %u not supported\n", cmd);
++		rc = -EINVAL;
++		break;
++	}
++	return rc;
++}
+diff --git a/drivers/media/video/msm/wfd/mdp-subdev.h b/drivers/media/video/msm/wfd/mdp-subdev.h
+new file mode 100755
+index 0000000..cc724b4
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/mdp-subdev.h
+@@ -0,0 +1,58 @@
++/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 and
++* only version 2 as published by the Free Software Foundation.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*
++*/
++
++#ifndef _WFD_MDP_SUBDEV_
++#define _WFD_MDP_SUBDEV_
++
++#include <linux/videodev2.h>
++#include <media/v4l2-subdev.h>
++
++#define MDP_MAGIC_IOCTL 'M'
++
++struct mdp_buf_info {
++	void *inst;
++	void *cookie;
++	u32 fd;
++	u32 offset;
++	u32 kvaddr;
++	u32 paddr;
++};
++
++struct mdp_prop {
++	void *inst;
++	u32 height;
++	u32 width;
++};
++
++static inline bool mdp_buf_info_equals(struct mdp_buf_info *a,
++		struct mdp_buf_info *b)
++{
++	return a->inst == b->inst
++		&& a->fd == b->fd
++		&& a->offset == b->offset
++		&& a->kvaddr == b->kvaddr
++		&& a->paddr == b->paddr;
++}
++
++#define MDP_Q_BUFFER  _IOW(MDP_MAGIC_IOCTL, 1, struct mdp_buf_info *)
++#define MDP_DQ_BUFFER  _IOR(MDP_MAGIC_IOCTL, 2, struct mdp_out_buf *)
++#define MDP_OPEN  _IOR(MDP_MAGIC_IOCTL, 3, void **)
++#define MDP_SET_PROP  _IOW(MDP_MAGIC_IOCTL, 4, struct mdp_prop *)
++#define MDP_CLOSE  _IOR(MDP_MAGIC_IOCTL, 5, void *)
++#define MDP_START  _IOR(MDP_MAGIC_IOCTL, 6, void *)
++#define MDP_STOP  _IOR(MDP_MAGIC_IOCTL, 7, void *)
++extern int mdp_init(struct v4l2_subdev *sd, u32 val);
++extern long mdp_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
++
++
++#endif 
+diff --git a/drivers/media/video/msm/wfd/vsg-subdev.c b/drivers/media/video/msm/wfd/vsg-subdev.c
+new file mode 100755
+index 0000000..8b65857
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/vsg-subdev.c
+@@ -0,0 +1,691 @@
++/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 and
++* only version 2 as published by the Free Software Foundation.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*
++*/
++#include <linux/hrtimer.h>
++#include <linux/time.h>
++#include <linux/list.h>
++#include <media/videobuf2-core.h>
++#include "enc-subdev.h"
++#include "vsg-subdev.h"
++#include "wfd-util.h"
++
++#define DEFAULT_FRAME_INTERVAL (66*NSEC_PER_MSEC)
++#define DEFAULT_MAX_FRAME_INTERVAL (1*NSEC_PER_SEC)
++#define DEFAULT_MODE ((enum vsg_modes)VSG_MODE_CFR)
++#define MAX_BUFS_BUSY_WITH_ENC 5
++
++static int vsg_release_input_buffer(struct vsg_context *context,
++		struct vsg_buf_info *buf)
++{
++	WFD_MSG_DBG("Releasing frame with ts %lld ms, paddr %p\n",
++			timespec_to_ns(&buf->time),
++			(void *)buf->mdp_buf_info.paddr);
++
++	if (buf->flags & VSG_NEVER_RELEASE)
++		WFD_MSG_WARN("Warning releasing buffer that's"
++				"not supposed to be released\n");
++
++	return context->vmops.release_input_frame(context->vmops.cbdata,
++			buf);
++
++}
++
++static int vsg_encode_frame(struct vsg_context *context,
++		struct vsg_buf_info *buf)
++{
++	WFD_MSG_DBG("Encoding frame with ts %lld ms, paddr %p\n",
++			timespec_to_ns(&buf->time),
++			(void *)buf->mdp_buf_info.paddr);
++
++	return context->vmops.encode_frame(context->vmops.cbdata,
++			buf);
++}
++
++static void vsg_set_last_buffer(struct vsg_context *context,
++		struct vsg_buf_info *buf)
++{
++	if (buf->flags & VSG_NEVER_SET_LAST_BUFFER)
++		WFD_MSG_WARN("Shouldn't be setting this to last buffer\n");
++
++	context->last_buffer = buf;
++
++	WFD_MSG_DBG("Setting last buffer to paddr %p\n",
++			(void *)buf->mdp_buf_info.paddr);
++}
++
++static void vsg_encode_helper_func(struct work_struct *task)
++{
++	struct vsg_encode_work *work =
++		container_of(task, struct vsg_encode_work, work);
++
++	int rc = vsg_encode_frame(work->context, work->buf);
++	if (rc < 0) {
++		mutex_lock(&work->context->mutex);
++		work->context->state = VSG_STATE_ERROR;
++		mutex_unlock(&work->context->mutex);
++	}
++	kfree(work);
++}
++
++static void vsg_work_func(struct work_struct *task)
++{
++	struct vsg_work *work =
++		container_of(task, struct vsg_work, work);
++	struct vsg_encode_work *encode_work;
++	struct vsg_context *context = work->context;
++	struct vsg_buf_info *buf_info = NULL, *temp = NULL;
++	int rc = 0, count = 0;
++	mutex_lock(&context->mutex);
++
++	if (list_empty(&context->free_queue.node)) {
++		WFD_MSG_DBG("%s: queue empty doing nothing\n", __func__);
++		goto err_skip_encode;
++	} else if (context->state != VSG_STATE_STARTED) {
++		WFD_MSG_DBG("%s: vsg is stopped or in error state "
++				"doing nothing\n", __func__);
++		goto err_skip_encode;
++	}
++
++	list_for_each_entry(temp, &context->busy_queue.node, node) {
++		if (++count > MAX_BUFS_BUSY_WITH_ENC) {
++			WFD_MSG_WARN("Skipping encode, too many "
++				"buffers with encoder");
++			goto err_skip_encode;
++		}
++	}
++
++	buf_info = list_first_entry(&context->free_queue.node,
++			struct vsg_buf_info, node);
++	list_del(&buf_info->node);
++	INIT_LIST_HEAD(&buf_info->node);
++
++	ktime_get_ts(&buf_info->time);
++	hrtimer_forward_now(&context->threshold_timer, ns_to_ktime(
++				context->max_frame_interval));
++
++	temp = NULL;
++	list_for_each_entry(temp, &context->busy_queue.node, node) {
++		if (mdp_buf_info_equals(&temp->mdp_buf_info,
++					&buf_info->mdp_buf_info)) {
++			temp->flags |= VSG_NEVER_RELEASE;
++		}
++	}
++
++	if (context->last_buffer &&
++		mdp_buf_info_equals(&context->last_buffer->mdp_buf_info,
++			&buf_info->mdp_buf_info)) {
++		context->last_buffer->flags |= VSG_NEVER_RELEASE;
++	}
++
++	encode_work = kmalloc(sizeof(*encode_work), GFP_KERNEL);
++	encode_work->buf = buf_info;
++	encode_work->context = context;
++	INIT_WORK(&encode_work->work, vsg_encode_helper_func);
++	rc = queue_work(context->work_queue, &encode_work->work);
++	if (!rc) {
++		WFD_MSG_ERR("Queueing buffer for encode failed\n");
++		kfree(encode_work);
++		encode_work = NULL;
++		goto err_skip_encode;
++	}
++
++	buf_info->flags |= VSG_BUF_BEING_ENCODED;
++	if (!(buf_info->flags & VSG_NEVER_SET_LAST_BUFFER)) {
++		if (context->last_buffer) {
++			struct vsg_buf_info *old_last_buffer =
++				context->last_buffer;
++			bool last_buf_with_us = old_last_buffer &&
++				!(old_last_buffer->flags &
++					VSG_BUF_BEING_ENCODED);
++			bool can_release = old_last_buffer &&
++				!(old_last_buffer->flags &
++					VSG_NEVER_RELEASE);
++
++			if (old_last_buffer && last_buf_with_us
++				&& can_release) {
++				vsg_release_input_buffer(context,
++					old_last_buffer);
++				kfree(old_last_buffer);
++			}
++		}
++		vsg_set_last_buffer(context, buf_info);
++	}
++
++	list_add_tail(&buf_info->node, &context->busy_queue.node);
++err_skip_encode:
++	mutex_unlock(&context->mutex);
++	kfree(work);
++}
++
++static void vsg_timer_helper_func(struct work_struct *task)
++{
++	struct vsg_work *work =
++		container_of(task, struct vsg_work, work);
++	struct vsg_work *new_work = NULL;
++	struct vsg_context *context = work->context;
++	int num_bufs_to_queue = 1, c = 0;
++
++	mutex_lock(&context->mutex);
++
++	if (context->state != VSG_STATE_STARTED)
++		goto err_locked;
++
++	if (list_empty(&context->free_queue.node)
++		&& context->last_buffer) {
++		struct vsg_buf_info *info = NULL, *buf_to_encode = NULL;
++
++		if (context->mode == VSG_MODE_CFR)
++			num_bufs_to_queue = 1;
++		else if (context->mode == VSG_MODE_VFR)
++			num_bufs_to_queue = 2;
++
++		for (c = 0; c < num_bufs_to_queue; ++c) {
++			info = kzalloc(sizeof(*info), GFP_KERNEL);
++
++			if (!info) {
++				WFD_MSG_ERR("Couldn't allocate memory in %s\n",
++					__func__);
++				goto err_locked;
++			}
++
++			buf_to_encode = context->last_buffer;
++
++			info->mdp_buf_info = buf_to_encode->mdp_buf_info;
++			info->flags = 0;
++			INIT_LIST_HEAD(&info->node);
++
++			list_add_tail(&info->node, &context->free_queue.node);
++			WFD_MSG_DBG("Regenerated frame with paddr %p\n",
++				(void *)info->mdp_buf_info.paddr);
++		}
++	}
++
++	for (c = 0; c < num_bufs_to_queue; ++c) {
++		new_work = kzalloc(sizeof(*new_work), GFP_KERNEL);
++		if (!new_work) {
++			WFD_MSG_ERR("Unable to allocate memory"
++					"to queue buffer\n");
++			goto err_locked;
++		}
++
++		INIT_WORK(&new_work->work, vsg_work_func);
++		new_work->context = context;
++		queue_work(context->work_queue, &new_work->work);
++	}
++
++err_locked:
++	mutex_unlock(&context->mutex);
++	kfree(work);
++}
++
++static enum hrtimer_restart vsg_threshold_timeout_func(struct hrtimer *timer)
++{
++	struct vsg_context *context = NULL;
++	struct vsg_work *task = NULL;
++
++	task = kzalloc(sizeof(*task), GFP_ATOMIC);
++	context = container_of(timer, struct vsg_context,
++			threshold_timer);
++	if (!task) {
++		WFD_MSG_ERR("Out of memory in %s", __func__);
++		goto threshold_err_bad_param;
++	} else if (!context) {
++		WFD_MSG_ERR("Context not proper in %s", __func__);
++		goto threshold_err_no_context;
++	}
++
++	INIT_WORK(&task->work, vsg_timer_helper_func);
++	task->context = context;
++
++	queue_work(context->work_queue, &task->work);
++threshold_err_bad_param:
++	hrtimer_forward_now(&context->threshold_timer, ns_to_ktime(
++				context->max_frame_interval));
++	return HRTIMER_RESTART;
++threshold_err_no_context:
++	return HRTIMER_NORESTART;
++}
++
++int vsg_init(struct v4l2_subdev *sd, u32 val)
++{
++	return 0;
++}
++
++static int vsg_open(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++
++	if (!arg || !sd)
++		return -EINVAL;
++
++	context = kzalloc(sizeof(*context), GFP_KERNEL);
++	INIT_LIST_HEAD(&context->free_queue.node);
++	INIT_LIST_HEAD(&context->busy_queue.node);
++
++	context->vmops = *(struct vsg_msg_ops *)arg;
++	context->work_queue = create_singlethread_workqueue("v4l-vsg");
++
++	context->frame_interval = DEFAULT_FRAME_INTERVAL;
++	context->max_frame_interval = DEFAULT_MAX_FRAME_INTERVAL;
++
++	hrtimer_init(&context->threshold_timer, CLOCK_MONOTONIC,
++			HRTIMER_MODE_REL);
++	context->threshold_timer.function = vsg_threshold_timeout_func;
++
++	context->last_buffer = NULL;
++	context->mode = DEFAULT_MODE;
++	context->state = VSG_STATE_NONE;
++	mutex_init(&context->mutex);
++
++	sd->dev_priv = context;
++	return 0;
++}
++
++static int vsg_close(struct v4l2_subdev *sd)
++{
++	struct vsg_context *context = NULL;
++
++	if (!sd)
++		return -EINVAL;
++
++	context = (struct vsg_context *)sd->dev_priv;
++	destroy_workqueue(context->work_queue);
++	kfree(context);
++	return 0;
++}
++
++static int vsg_start(struct v4l2_subdev *sd)
++{
++	struct vsg_context *context = NULL;
++
++	if (!sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		return -EINVAL;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++
++	if (context->state == VSG_STATE_STARTED) {
++		WFD_MSG_ERR("VSG not stopped, start not allowed\n");
++		return -EINPROGRESS;
++	} else if (context->state == VSG_STATE_ERROR) {
++		WFD_MSG_ERR("VSG in error state, not allowed to restart\n");
++		return -ENOTRECOVERABLE;
++	}
++
++	context->state = VSG_STATE_STARTED;
++	hrtimer_start(&context->threshold_timer, ns_to_ktime(context->
++			max_frame_interval), HRTIMER_MODE_REL);
++	return 0;
++}
++
++static int vsg_stop(struct v4l2_subdev *sd)
++{
++	struct vsg_context *context = NULL;
++
++	if (!sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		return -EINVAL;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++
++	mutex_lock(&context->mutex);
++	context->state = VSG_STATE_STOPPED;
++	{ 
++		struct list_head *pos, *next;
++		list_for_each_safe(pos, next, &context->free_queue.node) {
++			struct vsg_buf_info *temp =
++				list_entry(pos, struct vsg_buf_info, node);
++			list_del(&temp->node);
++			kfree(temp);
++		}
++	}
++
++	hrtimer_cancel(&context->threshold_timer);
++
++	mutex_unlock(&context->mutex);
++
++	flush_workqueue(context->work_queue);
++	return 0;
++}
++
++static long vsg_queue_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++	struct vsg_buf_info *buf_info = kzalloc(sizeof(*buf_info), GFP_KERNEL);
++	int rc = 0;
++	bool push = false;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		rc = -EINVAL;
++		goto queue_err_bad_param;
++	} else if (!buf_info) {
++		WFD_MSG_ERR("ERROR, out of memory in %s\n", __func__);
++		rc = -ENOMEM;
++		goto queue_err_bad_param;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	mutex_lock(&context->mutex);
++
++	*buf_info = *(struct vsg_buf_info *)arg;
++	INIT_LIST_HEAD(&buf_info->node);
++	buf_info->flags = 0;
++	ktime_get_ts(&buf_info->time);
++
++	WFD_MSG_DBG("Queue frame with paddr %p\n",
++			(void *)buf_info->mdp_buf_info.paddr);
++
++	{ 
++		struct list_head *pos, *next;
++		list_for_each_safe(pos, next, &context->free_queue.node) {
++			struct vsg_buf_info *temp =
++				list_entry(pos, struct vsg_buf_info, node);
++			bool is_last_buffer = context->last_buffer &&
++				mdp_buf_info_equals(
++					&context->last_buffer->mdp_buf_info,
++					&temp->mdp_buf_info);
++
++			list_del(&temp->node);
++
++			if (!is_last_buffer &&
++				!(temp->flags & VSG_NEVER_RELEASE)) {
++				vsg_release_input_buffer(context, temp);
++				kfree(temp);
++			}
++		}
++	}
++
++	list_add_tail(&buf_info->node, &context->free_queue.node);
++
++	if (context->mode == VSG_MODE_VFR) {
++		if (!context->last_buffer)
++			push = true;
++		else {
++			struct timespec diff = timespec_sub(buf_info->time,
++					context->last_buffer->time);
++			struct timespec temp = ns_to_timespec(
++						context->frame_interval);
++
++			if (timespec_compare(&diff, &temp) >= 0)
++				push = true;
++		}
++	} else if (context->mode == VSG_MODE_CFR) {
++		if (!context->last_buffer) {
++			push = true;
++			hrtimer_forward_now(&context->threshold_timer,
++				ns_to_ktime(context->max_frame_interval));
++		}
++	}
++
++	if (push) {
++		struct vsg_work *new_work =
++			kzalloc(sizeof(*new_work), GFP_KERNEL);
++
++		INIT_WORK(&new_work->work, vsg_work_func);
++		new_work->context = context;
++		queue_work(context->work_queue, &new_work->work);
++	}
++
++	mutex_unlock(&context->mutex);
++queue_err_bad_param:
++	if (rc < 0)
++		kfree(buf_info);
++
++	return rc;
++}
++
++static long vsg_return_ip_buffer(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++	struct vsg_buf_info *buf_info, *last_buffer,
++			*expected_buffer;
++	int rc = 0;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		rc = -EINVAL;
++		goto return_ip_buf_err_bad_param;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	mutex_lock(&context->mutex);
++	buf_info = (struct vsg_buf_info *)arg;
++	last_buffer = context->last_buffer;
++
++	expected_buffer = list_first_entry(&context->busy_queue.node,
++			struct vsg_buf_info, node);
++
++	WFD_MSG_DBG("Return frame with paddr %p\n",
++			(void *)buf_info->mdp_buf_info.paddr);
++
++	if (!expected_buffer) {
++		WFD_MSG_ERR("Unexpectedly received buffer from enc with "
++			"paddr %p\n", (void *)buf_info->mdp_buf_info.paddr);
++		goto return_ip_buf_bad_buf;
++	}
++
++	expected_buffer->flags &= ~VSG_BUF_BEING_ENCODED;
++	if (mdp_buf_info_equals(&expected_buffer->mdp_buf_info,
++				&buf_info->mdp_buf_info)) {
++		bool is_same_buffer = context->last_buffer &&
++			mdp_buf_info_equals(
++					&context->last_buffer->mdp_buf_info,
++					&expected_buffer->mdp_buf_info);
++
++		list_del(&expected_buffer->node);
++		if (!is_same_buffer &&
++			!(expected_buffer->flags & VSG_NEVER_RELEASE)) {
++			vsg_release_input_buffer(context, expected_buffer);
++			kfree(expected_buffer);
++		}
++	} else {
++		WFD_MSG_ERR("Returned buffer %p is not latest buffer, "
++				"expected %p\n",
++				(void *)buf_info->mdp_buf_info.paddr,
++				(void *)expected_buffer->mdp_buf_info.paddr);
++		rc = -EINVAL;
++		goto return_ip_buf_bad_buf;
++	}
++
++return_ip_buf_bad_buf:
++	mutex_unlock(&context->mutex);
++return_ip_buf_err_bad_param:
++	return rc;
++}
++
++static long vsg_set_frame_interval(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++	int64_t interval;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		return -EINVAL;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	interval = *(int64_t *)arg;
++
++	if (interval <= 0) {
++		WFD_MSG_ERR("ERROR, invalid interval %lld into %s\n",
++				interval, __func__);
++		return -EINVAL;
++	}
++
++	mutex_lock(&context->mutex);
++
++	context->frame_interval = interval;
++	if (interval > context->max_frame_interval) {
++		WFD_MSG_WARN("Changing max frame interval from %lld to %lld\n",
++				context->max_frame_interval, interval);
++		context->max_frame_interval = interval;
++	}
++
++	mutex_unlock(&context->mutex);
++	return 0;
++}
++
++static long vsg_get_frame_interval(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		return -EINVAL;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	mutex_lock(&context->mutex);
++	*(int64_t *)arg = context->frame_interval;
++	mutex_unlock(&context->mutex);
++
++	return 0;
++}
++
++static long vsg_set_max_frame_interval(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++	int64_t interval;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		return -EINVAL;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	interval = *(int64_t *)arg;
++
++	if (interval <= 0) {
++		WFD_MSG_ERR("ERROR, invalid interval %lld into %s\n",
++				interval, __func__);
++		return -EINVAL;
++	}
++
++	mutex_lock(&context->mutex);
++
++	context->max_frame_interval = interval;
++	if (interval < context->frame_interval) {
++		WFD_MSG_WARN("Changing frame interval from %lld to %lld\n",
++				context->frame_interval, interval);
++		context->frame_interval = interval;
++	}
++
++	mutex_unlock(&context->mutex);
++
++	return 0;
++}
++
++static long vsg_get_max_frame_interval(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		return -EINVAL;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	mutex_lock(&context->mutex);
++	*(int64_t *)arg = context->max_frame_interval;
++	mutex_unlock(&context->mutex);
++
++	return 0;
++}
++
++static long vsg_set_mode(struct v4l2_subdev *sd, void *arg)
++{
++	struct vsg_context *context = NULL;
++	enum vsg_modes *mode = NULL;
++	int rc = 0;
++
++	if (!arg || !sd) {
++		WFD_MSG_ERR("ERROR, invalid arguments into %s\n", __func__);
++		rc = -EINVAL;
++		goto set_mode_err_bad_parm;
++	}
++
++	context = (struct vsg_context *)sd->dev_priv;
++	mutex_lock(&context->mutex);
++	mode = arg;
++
++	switch (*mode) {
++	case VSG_MODE_CFR:
++		context->max_frame_interval = context->frame_interval;
++		
++	case VSG_MODE_VFR:
++		context->mode = *mode;
++		break;
++	default:
++		context->mode = DEFAULT_MODE;
++		rc = -EINVAL;
++		goto set_mode_err_bad_mode;
++		break;
++	}
++
++set_mode_err_bad_mode:
++	mutex_unlock(&context->mutex);
++set_mode_err_bad_parm:
++	return rc;
++}
++
++long vsg_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
++{
++	int rc = 0;
++
++	WFD_MSG_DBG("VSG ioctl: %d\n", cmd);
++	if (sd == NULL)
++		return -EINVAL;
++
++	switch (cmd) {
++	case VSG_OPEN:
++		rc = vsg_open(sd, arg);
++		break;
++	case VSG_CLOSE:
++		rc = vsg_close(sd);
++		break;
++	case VSG_START:
++		rc = vsg_start(sd);
++		break;
++	case VSG_STOP:
++		rc = vsg_stop(sd);
++		break;
++	case VSG_Q_BUFFER:
++		rc = vsg_queue_buffer(sd, arg);
++		break;
++	case VSG_RETURN_IP_BUFFER:
++		rc = vsg_return_ip_buffer(sd, arg);
++		break;
++	case VSG_GET_FRAME_INTERVAL:
++		rc = vsg_get_frame_interval(sd, arg);
++		break;
++	case VSG_SET_FRAME_INTERVAL:
++		rc = vsg_set_frame_interval(sd, arg);
++		break;
++	case VSG_GET_MAX_FRAME_INTERVAL:
++		rc = vsg_get_max_frame_interval(sd, arg);
++		break;
++	case VSG_SET_MAX_FRAME_INTERVAL:
++		rc = vsg_set_max_frame_interval(sd, arg);
++		break;
++	case VSG_SET_MODE:
++		rc = vsg_set_mode(sd, arg);
++		break;
++	default:
++		rc = -ENOTSUPP;
++		break;
++	}
++
++	return rc;
++}
+diff --git a/drivers/media/video/msm/wfd/vsg-subdev.h b/drivers/media/video/msm/wfd/vsg-subdev.h
+new file mode 100755
+index 0000000..9ac3b07
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/vsg-subdev.h
+@@ -0,0 +1,99 @@
++/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 and
++* only version 2 as published by the Free Software Foundation.
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++* GNU General Public License for more details.
++*
++*/
++
++#ifndef _WFD_VSG_SUBDEV_
++#define _WFD_VSG_SUBDEV_
++
++#include <linux/videodev2.h>
++#include <linux/list.h>
++#include <linux/ktime.h>
++#include <linux/workqueue.h>
++#include <media/v4l2-subdev.h>
++#include "mdp-subdev.h"
++
++#define VSG_MAGIC_IOCTL 'V'
++
++enum vsg_flags {
++	VSG_NEVER_RELEASE = 1<<0,
++	VSG_NEVER_SET_LAST_BUFFER = 1<<1,
++	VSG_BUF_BEING_ENCODED = 1<<2,
++};
++
++enum vsg_modes {
++	VSG_MODE_CFR,
++	VSG_MODE_VFR,
++};
++
++enum vsg_states {
++	VSG_STATE_NONE,
++	VSG_STATE_STARTED,
++	VSG_STATE_STOPPED,
++	VSG_STATE_ERROR
++};
++
++struct vsg_buf_info {
++	struct mdp_buf_info mdp_buf_info;
++	struct timespec time;
++	
++	struct list_head node;
++	uint32_t flags;
++};
++
++struct vsg_msg_ops {
++	void *cbdata;
++	int (*encode_frame)(void *cbdata, struct vsg_buf_info *buffer);
++	int (*release_input_frame)(void *cbdata, struct vsg_buf_info *buffer);
++};
++
++struct vsg_context {
++	struct vsg_buf_info	free_queue, busy_queue;
++	struct vsg_msg_ops vmops;
++	
++	int64_t frame_interval, max_frame_interval;
++	struct workqueue_struct *work_queue;
++	struct hrtimer threshold_timer;
++	struct mutex mutex;
++	struct vsg_buf_info *last_buffer;
++	int mode;
++	int state;
++};
++
++struct vsg_work {
++	struct vsg_context *context;
++	struct work_struct work;
++};
++
++struct vsg_encode_work {
++	struct vsg_buf_info *buf;
++	struct vsg_context *context;
++	struct work_struct work;
++};
++
++#define VSG_OPEN  _IO(VSG_MAGIC_IOCTL, 1)
++#define VSG_CLOSE  _IO(VSG_MAGIC_IOCTL, 2)
++#define VSG_START  _IO(VSG_MAGIC_IOCTL, 3)
++#define VSG_STOP  _IO(VSG_MAGIC_IOCTL, 4)
++#define VSG_Q_BUFFER  _IOW(VSG_MAGIC_IOCTL, 5, struct vsg_buf_info *)
++#define VSG_DQ_BUFFER  _IOR(VSG_MAGIC_IOCTL, 6, struct vsg_out_buf *)
++#define VSG_RETURN_IP_BUFFER _IOW(VSG_MAGIC_IOCTL, 7, struct vsg_buf_info *)
++#define VSG_ENCODE_DONE _IO(VSG_MAGIC_IOCTL, 8)
++#define VSG_SET_FRAME_INTERVAL _IOW(VSG_MAGIC_IOCTL, 9, int64_t *)
++#define VSG_GET_FRAME_INTERVAL _IOR(VSG_MAGIC_IOCTL, 10, int64_t *)
++#define VSG_SET_MAX_FRAME_INTERVAL _IOW(VSG_MAGIC_IOCTL, 11, int64_t *)
++#define VSG_GET_MAX_FRAME_INTERVAL _IOR(VSG_MAGIC_IOCTL, 12, int64_t *)
++#define VSG_SET_MODE _IOW(VSG_MAGIC_IOCTL, 13, enum vsg_modes *)
++
++extern int vsg_init(struct v4l2_subdev *sd, u32 val);
++extern long vsg_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
++
++#endif 
+diff --git a/drivers/media/video/msm/wfd/wfd-ioctl.c b/drivers/media/video/msm/wfd/wfd-ioctl.c
+new file mode 100755
+index 0000000..fb32fec
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/wfd-ioctl.c
+@@ -0,0 +1,1645 @@
++/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 and
++ * only version 2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ */
++
++#include <linux/module.h>
++#include <linux/types.h>
++#include <linux/list.h>
++#include <linux/ioctl.h>
++#include <linux/spinlock.h>
++#include <linux/init.h>
++#include <linux/version.h>
++#include <linux/platform_device.h>
++#include <linux/android_pmem.h>
++#include <linux/sched.h>
++#include <linux/kthread.h>
++#include <linux/time.h>
++#include <mach/board.h>
++
++#include <media/v4l2-dev.h>
++#include <media/v4l2-ioctl.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-subdev.h>
++#include <media/videobuf2-core.h>
++#include <media/videobuf2-msm-mem.h>
++#include "wfd-util.h"
++#include "mdp-subdev.h"
++#include "enc-subdev.h"
++#include "vsg-subdev.h"
++
++#define WFD_VERSION KERNEL_VERSION(0, 0, 1)
++#define WFD_NUM_DEVICES 2
++#define WFD_DEVICE_NUMBER_BASE 38
++#define WFD_DEVICE_SECURE (WFD_DEVICE_NUMBER_BASE + 1)
++#define DEFAULT_WFD_WIDTH 640
++#define DEFAULT_WFD_HEIGHT 480
++#define VENC_INPUT_BUFFERS 4
++
++struct wfd_device {
++	struct mutex dev_lock;
++	struct platform_device *pdev;
++	struct v4l2_device v4l2_dev;
++	struct video_device *pvdev;
++	struct v4l2_subdev mdp_sdev;
++	struct v4l2_subdev enc_sdev;
++	struct v4l2_subdev vsg_sdev;
++	struct ion_client *ion_client;
++	bool secure_device;
++	bool in_use;
++	bool mdp_iommu_split_domain;
++};
++
++struct mem_info {
++	u32 fd;
++	u32 offset;
++};
++
++struct mem_info_entry {
++	struct list_head list;
++	unsigned long userptr;
++	struct mem_info minfo;
++};
++
++struct mem_region_pair {
++	struct mem_region *enc;
++	struct mem_region *mdp;
++	struct list_head list;
++};
++
++struct wfd_inst {
++	struct vb2_queue vid_bufq;
++	spinlock_t inst_lock;
++	u32 buf_count;
++	struct task_struct *mdp_task;
++	void *mdp_inst;
++	void *venc_inst;
++	u32 height;
++	u32 width;
++	u32 pixelformat;
++	struct list_head minfo_list;
++	bool streamoff;
++	u32 input_bufs_allocated;
++	u32 input_buf_size;
++	u32 out_buf_size;
++	struct list_head input_mem_list;
++	struct wfd_stats stats;
++	struct completion stop_mdp_thread;
++};
++
++struct wfd_vid_buffer {
++	struct vb2_buffer    vidbuf;
++};
++
++static int wfd_vidbuf_queue_setup(struct vb2_queue *q,
++				   const struct v4l2_format *fmt,
++				   unsigned int *num_buffers,
++				   unsigned int *num_planes,
++				   unsigned int sizes[], void *alloc_ctxs[])
++{
++	struct file *priv_data = (struct file *)(q->drv_priv);
++	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
++	unsigned long flags;
++	int i;
++
++	WFD_MSG_DBG("In %s\n", __func__);
++	if (num_buffers == NULL || num_planes == NULL)
++		return -EINVAL;
++
++	*num_planes = 1;
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	for (i = 0; i < *num_planes; ++i) {
++		sizes[i] = inst->out_buf_size;
++		alloc_ctxs[i] = inst;
++	}
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++
++	return 0;
++}
++
++void wfd_vidbuf_wait_prepare(struct vb2_queue *q)
++{
++}
++void wfd_vidbuf_wait_finish(struct vb2_queue *q)
++{
++}
++
++static unsigned long wfd_enc_addr_to_mdp_addr(struct wfd_inst *inst,
++		unsigned long addr)
++{
++	struct list_head *ptr, *next;
++	struct mem_region_pair *mpair;
++	if (!list_empty(&inst->input_mem_list)) {
++		list_for_each_safe(ptr, next,
++				&inst->input_mem_list) {
++			mpair = list_entry(ptr, struct mem_region_pair,
++					list);
++			if (mpair->enc->paddr == (u8 *)addr)
++				return (unsigned long)mpair->mdp->paddr;
++		}
++	}
++
++	return (unsigned long)NULL;
++}
++
++static int wfd_allocate_ion_buffer(struct ion_client *client,
++		bool secure, struct mem_region *mregion)
++{
++	struct ion_handle *handle;
++	void *kvaddr, *phys_addr;
++	unsigned long size;
++	unsigned int alloc_regions = 0;
++	int rc;
++
++	alloc_regions = ION_HEAP(ION_CP_MM_HEAP_ID);
++	alloc_regions |= secure ? ION_SECURE :
++				ION_HEAP(ION_IOMMU_HEAP_ID);
++	handle = ion_alloc(client,
++			mregion->size, SZ_4K, alloc_regions);
++
++	if (IS_ERR_OR_NULL(handle)) {
++		WFD_MSG_ERR("Failed to allocate input buffer\n");
++		rc = PTR_ERR(handle);
++		goto alloc_fail;
++	}
++
++	kvaddr = ion_map_kernel(client,	handle,	CACHED);
++
++	if (IS_ERR_OR_NULL(kvaddr)) {
++		WFD_MSG_ERR("Failed to get virtual addr\n");
++		rc = PTR_ERR(kvaddr);
++		goto alloc_fail;
++	}
++
++	rc = ion_map_iommu(client, handle,
++			VIDEO_DOMAIN, VIDEO_MAIN_POOL, SZ_4K,
++			0, (unsigned long *)&phys_addr,
++			&size, 0, 0);
++
++	if (rc) {
++		WFD_MSG_ERR("Failed to get physical addr\n");
++		goto alloc_fail;
++	} else if (size < mregion->size) {
++		WFD_MSG_ERR("Failed to map enough memory\n");
++		rc = -ENOMEM;
++		goto alloc_fail;
++	}
++
++	mregion->kvaddr = kvaddr;
++	mregion->paddr = phys_addr;
++	mregion->ion_handle = handle;
++
++	return rc;
++alloc_fail:
++	if (!IS_ERR_OR_NULL(handle)) {
++		ion_unmap_kernel(client, handle);
++		ion_free(client, handle);
++
++		mregion->kvaddr = NULL;
++		mregion->paddr = NULL;
++		mregion->ion_handle = NULL;
++	}
++	return rc;
++}
++
++static int wfd_free_ion_buffer(struct ion_client *client,
++		struct mem_region *mregion)
++{
++	if (!client || !mregion) {
++		WFD_MSG_ERR("Failed to free ion buffer: "
++				"Invalid client or region");
++		return -EINVAL;
++	}
++	ion_unmap_kernel(client, mregion->ion_handle);
++	ion_free(client, mregion->ion_handle);
++	return 0;
++}
++
++static int wfd_flush_ion_buffer(struct ion_client *client,
++		struct mem_region *mregion)
++{
++	if (!client || !mregion) {
++		WFD_MSG_ERR("Failed to flush ion buffer: "
++				"Invalid client or region");
++		return -EINVAL;
++	} else if (!mregion->ion_handle) {
++		WFD_MSG_ERR("Failed to flush ion buffer: "
++				"not an ion buffer");
++		return -EINVAL;
++	}
++
++	return msm_ion_do_cache_op(client,
++			mregion->ion_handle,
++			mregion->kvaddr,
++			mregion->size,
++			ION_IOC_INV_CACHES);
++
++}
++int wfd_allocate_input_buffers(struct wfd_device *wfd_dev,
++			struct wfd_inst *inst)
++{
++	int i;
++	struct mem_region *enc_mregion, *mdp_mregion;
++	struct mem_region_pair *mpair;
++	int rc;
++	unsigned long flags;
++	struct mdp_buf_info mdp_buf = {0};
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	if (inst->input_bufs_allocated) {
++		spin_unlock_irqrestore(&inst->inst_lock, flags);
++		return 0;
++	}
++	inst->input_bufs_allocated = true;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++
++	for (i = 0; i < VENC_INPUT_BUFFERS; ++i) {
++		mpair = kzalloc(sizeof(*mpair), GFP_KERNEL);
++		enc_mregion = kzalloc(sizeof(*enc_mregion), GFP_KERNEL);
++		mdp_mregion = kzalloc(sizeof(*enc_mregion), GFP_KERNEL);
++		enc_mregion->size = ALIGN(inst->input_buf_size, SZ_4K);
++
++		rc = wfd_allocate_ion_buffer(wfd_dev->ion_client,
++				wfd_dev->secure_device, enc_mregion);
++		if (rc) {
++			WFD_MSG_ERR("Failed to allocate input memory."
++				" This error causes memory leak!!!\n");
++			goto alloc_fail;
++		}
++
++		WFD_MSG_DBG("NOTE: enc paddr = %p, kvaddr = %p\n",
++				enc_mregion->paddr,
++				enc_mregion->kvaddr);
++
++		rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++				SET_INPUT_BUFFER, (void *)enc_mregion);
++
++		
++		mdp_mregion->kvaddr = enc_mregion->kvaddr;
++		mdp_mregion->size = enc_mregion->size;
++		mdp_mregion->offset = enc_mregion->offset;
++		mdp_mregion->fd = enc_mregion->fd;
++		mdp_mregion->cookie = 0;
++		mdp_mregion->ion_handle = enc_mregion->ion_handle;
++
++		if (wfd_dev->mdp_iommu_split_domain) {
++			if (wfd_dev->secure_device) {
++				rc = ion_phys(wfd_dev->ion_client,
++					mdp_mregion->ion_handle,
++					(unsigned long *)&mdp_mregion->paddr,
++					(size_t *)&mdp_mregion->size);
++			} else {
++				rc = ion_map_iommu(wfd_dev->ion_client,
++					mdp_mregion->ion_handle,
++					DISPLAY_WRITE_DOMAIN, GEN_POOL, SZ_4K,
++					0, (unsigned long *)&mdp_mregion->paddr,
++					(unsigned long *)&mdp_mregion->size,
++					0, 0);
++			}
++		} else {
++			rc = ion_map_iommu(wfd_dev->ion_client,
++				mdp_mregion->ion_handle,
++				DISPLAY_READ_DOMAIN, GEN_POOL, SZ_4K,
++				0, (unsigned long *)&mdp_mregion->paddr,
++				(unsigned long *)&mdp_mregion->size, 0, 0);
++		}
++
++		if (rc) {
++			WFD_MSG_ERR("Failed to map to mdp\n");
++			mdp_mregion->kvaddr = NULL;
++			mdp_mregion->paddr = NULL;
++			mdp_mregion->ion_handle = NULL;
++			goto alloc_fail;
++		}
++
++		mdp_buf.inst = inst->mdp_inst;
++		mdp_buf.cookie = enc_mregion;
++		mdp_buf.kvaddr = (u32) mdp_mregion->kvaddr;
++		mdp_buf.paddr = (u32) mdp_mregion->paddr;
++
++		WFD_MSG_DBG("NOTE: mdp paddr = %p, kvaddr = %p\n",
++				mdp_mregion->paddr,
++				mdp_mregion->kvaddr);
++
++		INIT_LIST_HEAD(&mpair->list);
++		mpair->enc = enc_mregion;
++		mpair->mdp = mdp_mregion;
++		list_add_tail(&mpair->list, &inst->input_mem_list);
++
++		rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
++				MDP_Q_BUFFER, (void *)&mdp_buf);
++		if (rc) {
++			WFD_MSG_ERR("Unable to queue the"
++					" buffer to mdp\n");
++			break;
++		} else {
++			wfd_stats_update(&inst->stats,
++					WFD_STAT_EVENT_MDP_QUEUE);
++		}
++	}
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			ALLOC_RECON_BUFFERS, NULL);
++	if (rc) {
++		WFD_MSG_ERR("Failed to allocate recon buffers\n");
++		goto alloc_fail;
++	}
++alloc_fail:
++	return rc;
++}
++void wfd_free_input_buffers(struct wfd_device *wfd_dev,
++			struct wfd_inst *inst)
++{
++	struct list_head *ptr, *next;
++	struct mem_region_pair *mpair;
++	unsigned long flags;
++	int rc = 0;
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	if (!inst->input_bufs_allocated) {
++		spin_unlock_irqrestore(&inst->inst_lock, flags);
++		return;
++	}
++	inst->input_bufs_allocated = false;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	if (!list_empty(&inst->input_mem_list)) {
++		list_for_each_safe(ptr, next,
++				&inst->input_mem_list) {
++			mpair = list_entry(ptr, struct mem_region_pair,
++						list);
++			rc = v4l2_subdev_call(&wfd_dev->enc_sdev,
++					core, ioctl, FREE_INPUT_BUFFER,
++					(void *)mpair->enc);
++
++			if (rc)
++				WFD_MSG_ERR("Failed to free buffers "
++						"from encoder\n");
++
++			if (mpair->mdp->paddr) {
++				if (wfd_dev->mdp_iommu_split_domain) {
++					if (!wfd_dev->secure_device)
++						ion_unmap_iommu(wfd_dev->
++							ion_client,
++							mpair->mdp->ion_handle,
++							DISPLAY_WRITE_DOMAIN,
++							GEN_POOL);
++				} else {
++					ion_unmap_iommu(wfd_dev->ion_client,
++						mpair->mdp->ion_handle,
++						DISPLAY_READ_DOMAIN, GEN_POOL);
++				}
++			}
++
++			if (mpair->enc->paddr)
++				ion_unmap_iommu(wfd_dev->ion_client,
++						mpair->enc->ion_handle,
++						VIDEO_DOMAIN, VIDEO_MAIN_POOL);
++
++			wfd_free_ion_buffer(wfd_dev->ion_client, mpair->enc);
++			list_del(&mpair->list);
++			kfree(mpair->enc);
++			kfree(mpair->mdp);
++			kfree(mpair);
++		}
++	}
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			FREE_RECON_BUFFERS, NULL);
++	if (rc)
++		WFD_MSG_ERR("Failed to free recon buffers\n");
++}
++
++struct mem_info *wfd_get_mem_info(struct wfd_inst *inst,
++			unsigned long userptr)
++{
++	struct mem_info_entry *temp;
++	struct mem_info *ret = NULL;
++	unsigned long flags;
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	if (!list_empty(&inst->minfo_list)) {
++		list_for_each_entry(temp, &inst->minfo_list, list) {
++			if (temp && temp->userptr == userptr) {
++				ret = &temp->minfo;
++				break;
++			}
++		}
++	}
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	return ret;
++}
++void wfd_put_mem_info(struct wfd_inst *inst,
++			struct mem_info *minfo)
++{
++	struct list_head *ptr, *next;
++	struct mem_info_entry *temp;
++	unsigned long flags;
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	if (!list_empty(&inst->minfo_list)) {
++		list_for_each_safe(ptr, next,
++				&inst->minfo_list) {
++			temp = list_entry(ptr, struct mem_info_entry,
++						list);
++			if (temp && (&temp->minfo == minfo)) {
++				list_del(&temp->list);
++				kfree(temp);
++			}
++		}
++	}
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++}
++static void wfd_unregister_out_buf(struct wfd_inst *inst,
++		struct mem_info *minfo)
++{
++	if (!minfo || !inst) {
++		WFD_MSG_ERR("Invalid arguments\n");
++		return;
++	}
++	wfd_put_mem_info(inst, minfo);
++}
++int wfd_vidbuf_buf_init(struct vb2_buffer *vb)
++{
++	int rc = 0;
++	struct vb2_queue *q = vb->vb2_queue;
++	struct file *priv_data = (struct file *)(q->drv_priv);
++	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(priv_data);
++	struct mem_info *minfo = vb2_plane_cookie(vb, 0);
++	struct mem_region mregion;
++	mregion.fd = minfo->fd;
++	mregion.offset = minfo->offset;
++	mregion.cookie = (u32)vb;
++	
++	mregion.size =  inst->out_buf_size;
++
++	if (inst && !inst->vid_bufq.streaming) {
++		rc = wfd_allocate_input_buffers(wfd_dev, inst);
++		if (rc) {
++			WFD_MSG_ERR("Failed to allocate input buffers\n");
++			goto free_input_bufs;
++		}
++		rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++				SET_OUTPUT_BUFFER, (void *)&mregion);
++		if (rc) {
++			WFD_MSG_ERR("Failed to set output buffer\n");
++			goto free_input_bufs;
++		}
++	}
++	return rc;
++free_input_bufs:
++	wfd_free_input_buffers(wfd_dev, inst);
++	return rc;
++}
++
++int wfd_vidbuf_buf_prepare(struct vb2_buffer *vb)
++{
++	return 0;
++}
++
++int wfd_vidbuf_buf_finish(struct vb2_buffer *vb)
++{
++	return 0;
++}
++
++void wfd_vidbuf_buf_cleanup(struct vb2_buffer *vb)
++{
++	int rc = 0;
++	struct vb2_queue *q = vb->vb2_queue;
++	struct file *priv_data = (struct file *)(q->drv_priv);
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(priv_data);
++	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
++	struct mem_info *minfo = vb2_plane_cookie(vb, 0);
++	struct mem_region mregion;
++
++	if (minfo == NULL) {
++		WFD_MSG_ERR("not freeing buffers since allocation failed");
++		return;
++	}
++
++	mregion.fd = minfo->fd;
++	mregion.offset = minfo->offset;
++	mregion.cookie = (u32)vb;
++	mregion.size =  inst->out_buf_size;
++
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			FREE_OUTPUT_BUFFER, (void *)&mregion);
++	if (rc)
++		WFD_MSG_ERR("Failed to free output buffer\n");
++	wfd_unregister_out_buf(inst, minfo);
++}
++
++static int mdp_output_thread(void *data)
++{
++	int rc = 0, no_sig_wait = 0;
++	struct file *filp = (struct file *)data;
++	struct wfd_inst *inst = filp->private_data;
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(filp);
++	struct mdp_buf_info obuf_mdp = {inst->mdp_inst, 0, 0, 0};
++	struct mem_region *mregion;
++	struct vsg_buf_info ibuf_vsg;
++	while (!kthread_should_stop()) {
++		if (rc) {
++			WFD_MSG_DBG("%s() error in output thread\n", __func__);
++			if (!no_sig_wait) {
++				wait_for_completion(&inst->stop_mdp_thread);
++				no_sig_wait = 1;
++			}
++			continue;
++		}
++		WFD_MSG_DBG("waiting for mdp output\n");
++		rc = v4l2_subdev_call(&wfd_dev->mdp_sdev,
++			core, ioctl, MDP_DQ_BUFFER, (void *)&obuf_mdp);
++
++		if (rc) {
++			if (rc != -ENOBUFS)
++				WFD_MSG_ERR("MDP reported err %d\n", rc);
++
++			WFD_MSG_ERR("Streamoff called\n");
++			continue;
++		} else {
++			wfd_stats_update(&inst->stats,
++				WFD_STAT_EVENT_MDP_DEQUEUE);
++		}
++
++		mregion = obuf_mdp.cookie;
++		if (!mregion) {
++			WFD_MSG_ERR("mdp cookie is null\n");
++			rc = -EINVAL;
++			continue;
++		}
++
++		ibuf_vsg.mdp_buf_info = obuf_mdp;
++		ibuf_vsg.mdp_buf_info.inst = inst->mdp_inst;
++		ibuf_vsg.mdp_buf_info.cookie = mregion;
++		ibuf_vsg.mdp_buf_info.kvaddr = (u32) mregion->kvaddr;
++		ibuf_vsg.mdp_buf_info.paddr =
++			(u32)wfd_enc_addr_to_mdp_addr(inst,
++					(unsigned long)mregion->paddr);
++		rc = v4l2_subdev_call(&wfd_dev->vsg_sdev,
++			core, ioctl, VSG_Q_BUFFER, (void *)&ibuf_vsg);
++
++		if (rc) {
++			WFD_MSG_ERR("Failed to queue frame to vsg\n");
++			continue;
++		} else {
++			wfd_stats_update(&inst->stats,
++				WFD_STAT_EVENT_VSG_QUEUE);
++		}
++	}
++	WFD_MSG_DBG("Exiting the thread\n");
++	return rc;
++}
++
++int wfd_vidbuf_start_streaming(struct vb2_queue *q, unsigned int count)
++{
++	struct file *priv_data = (struct file *)(q->drv_priv);
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(priv_data);
++	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
++	int rc = 0;
++
++	WFD_MSG_ERR("Stream on called\n");
++	WFD_MSG_DBG("enc start\n");
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			ENCODE_START, (void *)inst->venc_inst);
++	if (rc) {
++		WFD_MSG_ERR("Failed to start encoder\n");
++		goto subdev_start_fail;
++	}
++
++	WFD_MSG_DBG("vsg start\n");
++	rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core, ioctl,
++			VSG_START, NULL);
++	if (rc) {
++		WFD_MSG_ERR("Failed to start vsg\n");
++		goto subdev_start_fail;
++	}
++	init_completion(&inst->stop_mdp_thread);
++	inst->mdp_task = kthread_run(mdp_output_thread, priv_data,
++				"mdp_output_thread");
++	if (IS_ERR(inst->mdp_task)) {
++		rc = PTR_ERR(inst->mdp_task);
++		goto subdev_start_fail;
++	}
++	WFD_MSG_DBG("mdp start\n");
++	rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
++			 MDP_START, (void *)inst->mdp_inst);
++	if (rc)
++		WFD_MSG_ERR("Failed to start MDP\n");
++subdev_start_fail:
++	return rc;
++}
++
++int wfd_vidbuf_stop_streaming(struct vb2_queue *q)
++{
++	struct file *priv_data = (struct file *)(q->drv_priv);
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(priv_data);
++	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
++	int rc = 0;
++	WFD_MSG_DBG("mdp stop\n");
++	rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
++			 MDP_STOP, (void *)inst->mdp_inst);
++	if (rc)
++		WFD_MSG_ERR("Failed to stop MDP\n");
++
++	WFD_MSG_DBG("vsg stop\n");
++	rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core, ioctl,
++			 VSG_STOP, NULL);
++	if (rc)
++		WFD_MSG_ERR("Failed to stop VSG\n");
++
++	complete(&inst->stop_mdp_thread);
++	kthread_stop(inst->mdp_task);
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			ENCODE_FLUSH, (void *)inst->venc_inst);
++	if (rc)
++		WFD_MSG_ERR("Failed to flush encoder\n");
++	WFD_MSG_DBG("enc stop\n");
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			ENCODE_STOP, (void *)inst->venc_inst);
++	if (rc)
++		WFD_MSG_ERR("Failed to stop encoder\n");
++
++	return rc;
++}
++
++void wfd_vidbuf_buf_queue(struct vb2_buffer *vb)
++{
++	int rc = 0;
++	struct vb2_queue *q = vb->vb2_queue;
++	struct file *priv_data = (struct file *)(q->drv_priv);
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(priv_data);
++	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
++	struct mem_region mregion;
++	struct mem_info *minfo = vb2_plane_cookie(vb, 0);
++	mregion.fd = minfo->fd;
++	mregion.offset = minfo->offset;
++	mregion.cookie = (u32)vb;
++	mregion.size =  inst->out_buf_size;
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			FILL_OUTPUT_BUFFER, (void *)&mregion);
++	if (rc) {
++		WFD_MSG_ERR("Failed to fill output buffer\n");
++	}
++}
++
++static struct vb2_ops wfd_vidbuf_ops = {
++	.queue_setup = wfd_vidbuf_queue_setup,
++
++	.wait_prepare = wfd_vidbuf_wait_prepare,
++	.wait_finish = wfd_vidbuf_wait_finish,
++
++	.buf_init = wfd_vidbuf_buf_init,
++	.buf_prepare = wfd_vidbuf_buf_prepare,
++	.buf_finish = wfd_vidbuf_buf_finish,
++	.buf_cleanup = wfd_vidbuf_buf_cleanup,
++
++	.start_streaming = wfd_vidbuf_start_streaming,
++	.stop_streaming = wfd_vidbuf_stop_streaming,
++
++	.buf_queue = wfd_vidbuf_buf_queue,
++};
++
++static const struct v4l2_subdev_core_ops mdp_subdev_core_ops = {
++	.init = mdp_init,
++	.ioctl = mdp_ioctl,
++};
++
++static const struct v4l2_subdev_ops mdp_subdev_ops = {
++	.core = &mdp_subdev_core_ops,
++};
++
++static const struct v4l2_subdev_core_ops enc_subdev_core_ops = {
++	.init = venc_init,
++	.load_fw = venc_load_fw,
++	.ioctl = venc_ioctl,
++};
++
++static const struct v4l2_subdev_ops enc_subdev_ops = {
++	.core = &enc_subdev_core_ops,
++};
++
++static const struct v4l2_subdev_core_ops vsg_subdev_core_ops = {
++	.init = vsg_init,
++	.ioctl = vsg_ioctl,
++};
++
++static const struct v4l2_subdev_ops vsg_subdev_ops = {
++	.core = &vsg_subdev_core_ops,
++};
++
++static int wfdioc_querycap(struct file *filp, void *fh,
++		struct v4l2_capability *cap) {
++	WFD_MSG_DBG("wfdioc_querycap: E\n");
++	memset(cap, 0, sizeof(struct v4l2_capability));
++	strlcpy(cap->driver, "wifi-display", sizeof(cap->driver));
++	strlcpy(cap->card, "msm", sizeof(cap->card));
++	cap->version = WFD_VERSION;
++	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
++	WFD_MSG_DBG("wfdioc_querycap: X\n");
++	return 0;
++}
++static int wfdioc_g_fmt(struct file *filp, void *fh,
++			struct v4l2_format *fmt)
++{
++	struct wfd_inst *inst = filp->private_data;
++	unsigned long flags;
++	if (!fmt) {
++		WFD_MSG_ERR("Invalid argument\n");
++		return -EINVAL;
++	}
++	if (fmt->type != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
++		WFD_MSG_ERR("Only V4L2_BUF_TYPE_VIDEO_CAPTURE is supported\n");
++		return -EINVAL;
++	}
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	fmt->fmt.pix.width = inst->width;
++	fmt->fmt.pix.height = inst->height;
++	fmt->fmt.pix.pixelformat = inst->pixelformat;
++	fmt->fmt.pix.sizeimage = inst->out_buf_size;
++	fmt->fmt.pix.priv = 0;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	return 0;
++}
++
++static int wfdioc_s_fmt(struct file *filp, void *fh,
++			struct v4l2_format *fmt)
++{
++	int rc = 0;
++	struct wfd_inst *inst = filp->private_data;
++	struct wfd_device *wfd_dev = video_drvdata(filp);
++	struct mdp_prop prop;
++	unsigned long flags;
++	struct bufreq breq;
++	if (!fmt) {
++		WFD_MSG_ERR("Invalid argument\n");
++		return -EINVAL;
++	}
++	if (fmt->type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
++		fmt->fmt.pix.pixelformat != V4L2_PIX_FMT_H264) {
++		WFD_MSG_ERR("Only V4L2_BUF_TYPE_VIDEO_CAPTURE and "
++				"V4L2_PIX_FMT_H264 are supported\n");
++		return -EINVAL;
++	}
++
++	if (fmt->fmt.pix.width % 16) {
++		WFD_MSG_ERR("Only 16 byte aligned widths are supported\n");
++		return -ENOTSUPP;
++	}
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl, SET_FORMAT,
++				(void *)fmt);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set format on encoder, rc = %d\n", rc);
++		return rc;
++	}
++	breq.count = VENC_INPUT_BUFFERS;
++	breq.height = fmt->fmt.pix.height;
++	breq.width = fmt->fmt.pix.width;
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			SET_BUFFER_REQ, (void *)&breq);
++	if (rc) {
++		WFD_MSG_ERR("Failed to set buffer reqs on encoder\n");
++		return rc;
++	}
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	inst->input_buf_size = breq.size;
++	inst->out_buf_size = fmt->fmt.pix.sizeimage;
++	prop.height = inst->height = fmt->fmt.pix.height;
++	prop.width = inst->width = fmt->fmt.pix.width;
++	prop.inst = inst->mdp_inst;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl, MDP_SET_PROP,
++				(void *)&prop);
++	if (rc)
++		WFD_MSG_ERR("Failed to set height/width property on mdp\n");
++	return rc;
++}
++static int wfdioc_reqbufs(struct file *filp, void *fh,
++		struct v4l2_requestbuffers *b)
++{
++	struct wfd_inst *inst = filp->private_data;
++	struct wfd_device *wfd_dev = video_drvdata(filp);
++	unsigned long flags;
++	int rc = 0;
++
++	if (b->type != V4L2_CAP_VIDEO_CAPTURE ||
++		b->memory != V4L2_MEMORY_USERPTR) {
++		WFD_MSG_ERR("Only V4L2_CAP_VIDEO_CAPTURE and "
++		"V4L2_MEMORY_USERPTR are supported\n");
++		return -EINVAL;
++	}
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			GET_BUFFER_REQ, (void *)b);
++	if (rc) {
++		WFD_MSG_ERR("Failed to get buf reqs from encoder\n");
++		return rc;
++	}
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	inst->buf_count = b->count;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	rc = vb2_reqbufs(&inst->vid_bufq, b);
++	return rc;
++}
++static int wfd_register_out_buf(struct wfd_inst *inst,
++		struct v4l2_buffer *b)
++{
++	struct mem_info_entry *minfo_entry;
++	struct mem_info *minfo;
++	unsigned long flags;
++	if (!b || !inst || !b->reserved) {
++		WFD_MSG_ERR("Invalid arguments\n");
++		return -EINVAL;
++	}
++	minfo = wfd_get_mem_info(inst, b->m.userptr);
++	if (!minfo) {
++		minfo_entry = kzalloc(sizeof(struct mem_info_entry),
++				GFP_KERNEL);
++		if (copy_from_user(&minfo_entry->minfo, (void *)b->reserved,
++					sizeof(struct mem_info))) {
++			WFD_MSG_ERR(" copy_from_user failed. Populate"
++					" v4l2_buffer->reserved with meminfo\n");
++			return -EINVAL;
++		}
++		minfo_entry->userptr = b->m.userptr;
++		spin_lock_irqsave(&inst->inst_lock, flags);
++		list_add_tail(&minfo_entry->list, &inst->minfo_list);
++		spin_unlock_irqrestore(&inst->inst_lock, flags);
++	} else
++		WFD_MSG_INFO("Buffer already registered\n");
++
++	return 0;
++}
++static int wfdioc_qbuf(struct file *filp, void *fh,
++		struct v4l2_buffer *b)
++{
++	int rc = 0;
++	struct wfd_inst *inst = filp->private_data;
++	if (!inst || !b ||
++			(b->index < 0 || b->index >= inst->buf_count)) {
++		WFD_MSG_ERR("Invalid input parameters to QBUF IOCTL\n");
++		return -EINVAL;
++	}
++	rc = wfd_register_out_buf(inst, b);
++	if (rc) {
++		WFD_MSG_ERR("Failed to register buffer\n");
++		return rc;
++	}
++
++	rc = vb2_qbuf(&inst->vid_bufq, b);
++	if (rc)
++		WFD_MSG_ERR("Failed to queue buffer\n");
++	else
++		wfd_stats_update(&inst->stats, WFD_STAT_EVENT_CLIENT_QUEUE);
++
++	return rc;
++}
++
++static int wfdioc_streamon(struct file *filp, void *fh,
++		enum v4l2_buf_type i)
++{
++	int rc = 0;
++	struct wfd_inst *inst = filp->private_data;
++	unsigned long flags;
++	if (i != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
++		WFD_MSG_ERR("stream on for buffer type = %d is not "
++			"supported.\n", i);
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	inst->streamoff = false;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++
++	rc = vb2_streamon(&inst->vid_bufq, i);
++	if (rc) {
++		WFD_MSG_ERR("videobuf_streamon failed with err = %d\n", rc);
++		goto vidbuf_streamon_failed;
++	}
++	return rc;
++
++vidbuf_streamon_failed:
++	vb2_streamoff(&inst->vid_bufq, i);
++	return rc;
++}
++static int wfdioc_streamoff(struct file *filp, void *fh,
++		enum v4l2_buf_type i)
++{
++	struct wfd_inst *inst = filp->private_data;
++	unsigned long flags;
++
++	if (i != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
++		WFD_MSG_ERR("stream off for buffer type = %d is not "
++			"supported.\n", i);
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	if (inst->streamoff) {
++		WFD_MSG_ERR("Module is already in streamoff state\n");
++		spin_unlock_irqrestore(&inst->inst_lock, flags);
++		return -EINVAL;
++	}
++	inst->streamoff = true;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	WFD_MSG_DBG("Calling videobuf_streamoff\n");
++	vb2_streamoff(&inst->vid_bufq, i);
++	return 0;
++}
++static int wfdioc_dqbuf(struct file *filp, void *fh,
++		struct v4l2_buffer *b)
++{
++	struct wfd_inst *inst = filp->private_data;
++	int rc;
++
++	WFD_MSG_INFO("Waiting to dequeue buffer\n");
++	rc = vb2_dqbuf(&inst->vid_bufq, b, 0);
++
++	if (rc)
++		WFD_MSG_ERR("Failed to dequeue buffer\n");
++	else
++		wfd_stats_update(&inst->stats, WFD_STAT_EVENT_CLIENT_DEQUEUE);
++
++	return rc;
++}
++static int wfdioc_g_ctrl(struct file *filp, void *fh,
++					struct v4l2_control *a)
++{
++	int rc = 0;
++	struct wfd_device *wfd_dev = video_drvdata(filp);
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core,
++			ioctl, GET_PROP, a);
++	if (rc)
++		WFD_MSG_ERR("Failed to get encoder property\n");
++	return rc;
++}
++static int wfdioc_s_ctrl(struct file *filp, void *fh,
++					struct v4l2_control *a)
++{
++	int rc = 0;
++	struct wfd_device *wfd_dev = video_drvdata(filp);
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core,
++			ioctl, SET_PROP, a);
++	if (rc)
++		WFD_MSG_ERR("Failed to set encoder property\n");
++	return rc;
++}
++
++static int wfdioc_g_parm(struct file *filp, void *fh,
++		struct v4l2_streamparm *a)
++{
++	int rc = 0;
++	struct wfd_device *wfd_dev = video_drvdata(filp);
++	struct wfd_inst *inst = filp->private_data;
++	int64_t frame_interval = 0,
++		max_frame_interval = 0; 
++	struct v4l2_qcom_frameskip frameskip, *usr_frameskip;
++
++	usr_frameskip = (struct v4l2_qcom_frameskip *)
++			a->parm.capture.extendedmode;
++
++	if (!usr_frameskip) {
++		rc = -EINVAL;
++		goto get_parm_fail;
++	}
++	rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++			ioctl, VSG_GET_FRAME_INTERVAL, &frame_interval);
++
++	if (rc < 0)
++		goto get_parm_fail;
++
++	rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++			ioctl, VSG_GET_MAX_FRAME_INTERVAL, &max_frame_interval);
++
++	if (rc < 0)
++		goto get_parm_fail;
++
++	frameskip = (struct v4l2_qcom_frameskip) {
++		.maxframeinterval = max_frame_interval,
++	};
++
++	a->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++	a->parm.capture = (struct v4l2_captureparm) {
++		.capability = V4L2_CAP_TIMEPERFRAME,
++		.capturemode = 0,
++		.timeperframe = (struct v4l2_fract) {
++			.numerator = frame_interval,
++			.denominator = NSEC_PER_SEC,
++		},
++		.readbuffers = inst->buf_count,
++		.extendedmode = (__u32)usr_frameskip,
++		.reserved = {0}
++	};
++
++	rc = copy_to_user((void *)a->parm.capture.extendedmode,
++			&frameskip, sizeof(frameskip));
++	if (rc < 0)
++		goto get_parm_fail;
++
++get_parm_fail:
++	return rc;
++}
++
++static int wfdioc_s_parm(struct file *filp, void *fh,
++		struct v4l2_streamparm *a)
++{
++	int rc = 0;
++	struct wfd_device *wfd_dev = video_drvdata(filp);
++	struct wfd_inst *inst = filp->private_data;
++	struct v4l2_qcom_frameskip frameskip;
++	int64_t frame_interval, max_frame_interval;
++	void *extendedmode = NULL;
++	enum vsg_modes vsg_mode = VSG_MODE_VFR;
++	enum venc_framerate_modes venc_mode = VENC_MODE_VFR;
++
++
++	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
++		rc = -ENOTSUPP;
++		goto set_parm_fail;
++	}
++
++	if (a->parm.capture.readbuffers == 0 ||
++		a->parm.capture.readbuffers == inst->buf_count) {
++		a->parm.capture.readbuffers = inst->buf_count;
++	} else {
++		rc = -EINVAL;
++		goto set_parm_fail;
++	}
++
++	extendedmode = (void *)a->parm.capture.extendedmode;
++	if (a->parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
++		if (a->parm.capture.timeperframe.denominator == 0) {
++			rc = -EINVAL;
++			goto set_parm_fail;
++		}
++		venc_mode = VENC_MODE_CFR;
++		frame_interval =
++			a->parm.capture.timeperframe.numerator * NSEC_PER_SEC /
++			a->parm.capture.timeperframe.denominator;
++
++		rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++				ioctl, VSG_SET_FRAME_INTERVAL,
++				&frame_interval);
++
++		if (rc)
++			goto set_parm_fail;
++
++		rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core,
++				ioctl, SET_FRAMERATE,
++				&a->parm.capture.timeperframe);
++
++		if (rc)
++			goto set_parm_fail;
++	}
++
++	if (a->parm.capture.capability & V4L2_CAP_QCOM_FRAMESKIP &&
++		extendedmode) {
++		rc = copy_from_user(&frameskip,
++				extendedmode, sizeof(frameskip));
++
++		if (rc)
++			goto set_parm_fail;
++
++		max_frame_interval = (int64_t)frameskip.maxframeinterval;
++		vsg_mode = VSG_MODE_VFR;
++
++		rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++				ioctl, VSG_SET_MAX_FRAME_INTERVAL,
++				&max_frame_interval);
++
++		if (rc)
++			goto set_parm_fail;
++
++		rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++				ioctl, VSG_SET_MODE, &vsg_mode);
++
++		if (rc)
++			goto set_parm_fail;
++	} else {
++		vsg_mode = VSG_MODE_CFR;
++		rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++				ioctl, VSG_SET_MODE, &vsg_mode);
++
++		if (rc)
++			goto set_parm_fail;
++	}
++
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core,
++			ioctl, SET_FRAMERATE_MODE,
++			&venc_mode);
++
++set_parm_fail:
++	return rc;
++}
++
++static const struct v4l2_ioctl_ops g_wfd_ioctl_ops = {
++	.vidioc_querycap = wfdioc_querycap,
++	.vidioc_s_fmt_vid_cap = wfdioc_s_fmt,
++	.vidioc_g_fmt_vid_cap = wfdioc_g_fmt,
++	.vidioc_reqbufs = wfdioc_reqbufs,
++	.vidioc_qbuf = wfdioc_qbuf,
++	.vidioc_streamon = wfdioc_streamon,
++	.vidioc_streamoff = wfdioc_streamoff,
++	.vidioc_dqbuf = wfdioc_dqbuf,
++	.vidioc_g_ctrl = wfdioc_g_ctrl,
++	.vidioc_s_ctrl = wfdioc_s_ctrl,
++	.vidioc_g_parm = wfdioc_g_parm,
++	.vidioc_s_parm = wfdioc_s_parm,
++};
++static int wfd_set_default_properties(struct file *filp)
++{
++	unsigned long flags;
++	struct v4l2_format fmt;
++	struct v4l2_control ctrl;
++	struct wfd_inst *inst = filp->private_data;
++	if (!inst) {
++		WFD_MSG_ERR("Invalid argument\n");
++		return -EINVAL;
++	}
++	spin_lock_irqsave(&inst->inst_lock, flags);
++	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++	fmt.fmt.pix.height = inst->height = DEFAULT_WFD_HEIGHT;
++	fmt.fmt.pix.width = inst->width = DEFAULT_WFD_WIDTH;
++	fmt.fmt.pix.pixelformat = inst->pixelformat
++			= V4L2_PIX_FMT_H264;
++	spin_unlock_irqrestore(&inst->inst_lock, flags);
++	wfdioc_s_fmt(filp, filp->private_data, &fmt);
++
++	ctrl.id = V4L2_CID_MPEG_VIDEO_HEADER_MODE;
++	ctrl.value = V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_I_FRAME;
++	wfdioc_s_ctrl(filp, filp->private_data, &ctrl);
++	return 0;
++}
++static void venc_op_buffer_done(void *cookie, u32 status,
++			struct vb2_buffer *buf)
++{
++	WFD_MSG_DBG("yay!! got callback\n");
++	vb2_buffer_done(buf, VB2_BUF_STATE_DONE);
++}
++
++static void venc_ip_buffer_done(void *cookie, u32 status,
++			struct mem_region *mregion)
++{
++	struct file *filp = cookie;
++	struct wfd_inst *inst = filp->private_data;
++	struct vsg_buf_info buf;
++	struct mdp_buf_info mdp_buf = {0};
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(filp);
++	int rc = 0;
++	WFD_MSG_DBG("yay!! got ip callback\n");
++	mdp_buf.inst = inst->mdp_inst;
++	mdp_buf.cookie = mregion;
++	mdp_buf.kvaddr = (u32) mregion->kvaddr;
++	mdp_buf.paddr =
++		(u32)wfd_enc_addr_to_mdp_addr(inst,
++			(unsigned long)mregion->paddr);
++	buf.mdp_buf_info = mdp_buf;
++
++	rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core,
++			ioctl, VSG_RETURN_IP_BUFFER, (void *)&buf);
++	if (rc)
++		WFD_MSG_ERR("Failed to return buffer to vsg\n");
++	else
++		wfd_stats_update(&inst->stats, WFD_STAT_EVENT_ENC_DEQUEUE);
++
++}
++
++static int vsg_release_input_frame(void *cookie, struct vsg_buf_info *buf)
++{
++	struct file *filp = cookie;
++	struct wfd_inst *inst = filp->private_data;
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(filp);
++	int rc = 0;
++
++	rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core,
++			ioctl, MDP_Q_BUFFER, buf);
++	if (rc)
++		WFD_MSG_ERR("Failed to Q buffer to mdp\n");
++	else {
++		wfd_stats_update(&inst->stats, WFD_STAT_EVENT_MDP_QUEUE);
++		wfd_stats_update(&inst->stats, WFD_STAT_EVENT_VSG_DEQUEUE);
++	}
++
++	return rc;
++}
++
++static int vsg_encode_frame(void *cookie, struct vsg_buf_info *buf)
++{
++	struct file *filp = cookie;
++	struct wfd_inst *inst = filp->private_data;
++	struct wfd_device *wfd_dev =
++		(struct wfd_device *)video_drvdata(filp);
++	struct venc_buf_info venc_buf;
++	int rc = 0;
++
++	if (!buf)
++		return -EINVAL;
++
++	venc_buf = (struct venc_buf_info){
++		.timestamp = timespec_to_ns(&buf->time),
++		.mregion = buf->mdp_buf_info.cookie
++	};
++
++	wfd_flush_ion_buffer(wfd_dev->ion_client, venc_buf.mregion);
++
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++			ENCODE_FRAME, &venc_buf);
++
++	if (rc)
++		WFD_MSG_ERR("Encode failed\n");
++	else
++		wfd_stats_update(&inst->stats, WFD_STAT_EVENT_ENC_QUEUE);
++
++	return rc;
++}
++
++void *wfd_vb2_mem_ops_get_userptr(void *alloc_ctx, unsigned long vaddr,
++					unsigned long size, int write)
++{
++	return wfd_get_mem_info(alloc_ctx, vaddr);
++}
++
++void wfd_vb2_mem_ops_put_userptr(void *buf_priv)
++{
++	
++}
++
++void *wfd_vb2_mem_ops_cookie(void *buf_priv)
++{
++	return buf_priv;
++}
++
++
++static struct vb2_mem_ops wfd_vb2_mem_ops = {
++	.get_userptr = wfd_vb2_mem_ops_get_userptr,
++	.put_userptr = wfd_vb2_mem_ops_put_userptr,
++	.cookie = wfd_vb2_mem_ops_cookie,
++};
++
++int wfd_initialize_vb2_queue(struct vb2_queue *q, void *priv)
++{
++	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++	q->io_modes = VB2_USERPTR;
++	q->ops = &wfd_vidbuf_ops;
++	q->mem_ops = &wfd_vb2_mem_ops;
++	q->drv_priv = priv;
++	return vb2_queue_init(q);
++}
++
++static int wfd_open(struct file *filp)
++{
++	int rc = 0;
++	struct wfd_inst *inst = NULL;
++	struct wfd_device *wfd_dev = NULL;
++	struct venc_msg_ops enc_mops;
++	struct vsg_msg_ops vsg_mops;
++
++	WFD_MSG_DBG("wfd_open: E\n");
++	wfd_dev = video_drvdata(filp);
++
++	mutex_lock(&wfd_dev->dev_lock);
++	if (wfd_dev->in_use) {
++		WFD_MSG_ERR("Device already in use.\n");
++		rc = -EBUSY;
++		mutex_unlock(&wfd_dev->dev_lock);
++		goto err_dev_busy;
++	}
++
++	wfd_dev->in_use = true;
++	mutex_unlock(&wfd_dev->dev_lock);
++
++	inst = kzalloc(sizeof(struct wfd_inst), GFP_KERNEL);
++	if (!inst || !wfd_dev) {
++		WFD_MSG_ERR("Could not allocate memory for "
++			"wfd instance\n");
++		rc = -ENOMEM;
++		goto err_mdp_open;
++	}
++	filp->private_data = inst;
++	spin_lock_init(&inst->inst_lock);
++	INIT_LIST_HEAD(&inst->input_mem_list);
++	INIT_LIST_HEAD(&inst->minfo_list);
++
++	wfd_stats_init(&inst->stats, MINOR(filp->f_dentry->d_inode->i_rdev));
++
++	rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl, MDP_OPEN,
++				(void *)&inst->mdp_inst);
++	if (rc) {
++		WFD_MSG_ERR("Failed to open mdp subdevice: %d\n", rc);
++		goto err_mdp_open;
++	}
++
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, load_fw);
++	if (rc) {
++		WFD_MSG_ERR("Failed to load video encoder firmware: %d\n", rc);
++		goto err_venc;
++	}
++	enc_mops.op_buffer_done = venc_op_buffer_done;
++	enc_mops.ip_buffer_done = venc_ip_buffer_done;
++	enc_mops.cbdata = filp;
++	enc_mops.secure = wfd_dev->secure_device;
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl, OPEN,
++				(void *)&enc_mops);
++	if (rc || !enc_mops.cookie) {
++		WFD_MSG_ERR("Failed to open encoder subdevice: %d\n", rc);
++		goto err_venc;
++	}
++	inst->venc_inst = enc_mops.cookie;
++
++	vsg_mops.encode_frame = vsg_encode_frame;
++	vsg_mops.release_input_frame = vsg_release_input_frame;
++	vsg_mops.cbdata = filp;
++	rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core, ioctl, VSG_OPEN,
++				&vsg_mops);
++	if (rc) {
++		WFD_MSG_ERR("Failed to open vsg subdevice: %d\n", rc);
++		goto err_vsg_open;
++	}
++
++	wfd_initialize_vb2_queue(&inst->vid_bufq, filp);
++	wfd_set_default_properties(filp);
++	WFD_MSG_DBG("wfd_open: X\n");
++	return rc;
++
++err_vsg_open:
++	v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl, CLOSE, NULL);
++err_venc:
++	v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
++				MDP_CLOSE, (void *)inst->mdp_inst);
++err_mdp_open:
++	kfree(inst);
++err_dev_busy:
++	return rc;
++}
++
++static int wfd_close(struct file *filp)
++{
++	struct wfd_inst *inst;
++	struct wfd_device *wfd_dev;
++	int rc = 0;
++	wfd_dev = video_drvdata(filp);
++	WFD_MSG_DBG("wfd_close: E\n");
++	inst = filp->private_data;
++	if (inst) {
++		wfdioc_streamoff(filp, NULL, V4L2_BUF_TYPE_VIDEO_CAPTURE);
++		rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
++				MDP_CLOSE, (void *)inst->mdp_inst);
++		if (rc)
++			WFD_MSG_ERR("Failed to CLOSE mdp subdevice: %d\n", rc);
++
++		vb2_queue_release(&inst->vid_bufq);
++		wfd_free_input_buffers(wfd_dev, inst);
++		rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
++				CLOSE, (void *)inst->venc_inst);
++
++		if (rc)
++			WFD_MSG_ERR("Failed to CLOSE enc subdev: %d\n", rc);
++
++		rc = v4l2_subdev_call(&wfd_dev->vsg_sdev, core, ioctl,
++				VSG_CLOSE, NULL);
++
++		if (rc)
++			WFD_MSG_ERR("Failed to CLOSE vsg subdev: %d\n", rc);
++
++		wfd_stats_deinit(&inst->stats);
++		kfree(inst);
++	}
++
++	mutex_lock(&wfd_dev->dev_lock);
++	wfd_dev->in_use = false;
++	mutex_unlock(&wfd_dev->dev_lock);
++
++	WFD_MSG_DBG("wfd_close: X\n");
++	return 0;
++}
++static const struct v4l2_file_operations g_wfd_fops = {
++	.owner = THIS_MODULE,
++	.open = wfd_open,
++	.release = wfd_close,
++	.ioctl = video_ioctl2
++};
++void release_video_device(struct video_device *pvdev)
++{
++
++}
++
++static int wfd_dev_setup(struct wfd_device *wfd_dev, int dev_num,
++		struct platform_device *pdev)
++{
++	int rc = 0;
++	rc = v4l2_device_register(&pdev->dev, &wfd_dev->v4l2_dev);
++	if (rc) {
++		WFD_MSG_ERR("Failed to register the video device\n");
++		goto err_v4l2_registration;
++	}
++	wfd_dev->pvdev = video_device_alloc();
++	if (!wfd_dev->pvdev) {
++		WFD_MSG_ERR("Failed to allocate video device\n");
++		goto err_video_device_alloc;
++	}
++
++	wfd_dev->pvdev->release = release_video_device;
++	wfd_dev->pvdev->fops = &g_wfd_fops;
++	wfd_dev->pvdev->ioctl_ops = &g_wfd_ioctl_ops;
++
++	rc = video_register_device(wfd_dev->pvdev, VFL_TYPE_GRABBER,
++			dev_num);
++	if (rc) {
++		WFD_MSG_ERR("Failed to register the device\n");
++		goto err_video_register_device;
++	}
++	video_set_drvdata(wfd_dev->pvdev, wfd_dev);
++
++	v4l2_subdev_init(&wfd_dev->mdp_sdev, &mdp_subdev_ops);
++	strncpy(wfd_dev->mdp_sdev.name, "wfd-mdp", V4L2_SUBDEV_NAME_SIZE);
++	rc = v4l2_device_register_subdev(&wfd_dev->v4l2_dev,
++			&wfd_dev->mdp_sdev);
++	if (rc) {
++		WFD_MSG_ERR("Failed to register mdp subdevice: %d\n", rc);
++		goto err_mdp_register_subdev;
++	}
++
++	v4l2_subdev_init(&wfd_dev->enc_sdev, &enc_subdev_ops);
++	strncpy(wfd_dev->enc_sdev.name, "wfd-venc", V4L2_SUBDEV_NAME_SIZE);
++	rc = v4l2_device_register_subdev(&wfd_dev->v4l2_dev,
++			&wfd_dev->enc_sdev);
++	if (rc) {
++		WFD_MSG_ERR("Failed to register encoder subdevice: %d\n", rc);
++		goto err_venc_register_subdev;
++	}
++	rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, init, 0);
++	if (rc) {
++		WFD_MSG_ERR("Failed to initiate encoder device %d\n", rc);
++		goto err_venc_init;
++	}
++
++	v4l2_subdev_init(&wfd_dev->vsg_sdev, &vsg_subdev_ops);
++	strncpy(wfd_dev->vsg_sdev.name, "wfd-vsg", V4L2_SUBDEV_NAME_SIZE);
++	rc = v4l2_device_register_subdev(&wfd_dev->v4l2_dev,
++			&wfd_dev->vsg_sdev);
++	if (rc) {
++		WFD_MSG_ERR("Failed to register vsg subdevice: %d\n", rc);
++		goto err_venc_init;
++	}
++
++	WFD_MSG_DBG("__wfd_probe: X\n");
++	return rc;
++
++err_venc_init:
++	v4l2_device_unregister_subdev(&wfd_dev->enc_sdev);
++err_venc_register_subdev:
++	v4l2_device_unregister_subdev(&wfd_dev->mdp_sdev);
++err_mdp_register_subdev:
++	video_unregister_device(wfd_dev->pvdev);
++err_video_register_device:
++	video_device_release(wfd_dev->pvdev);
++err_video_device_alloc:
++	v4l2_device_unregister(&wfd_dev->v4l2_dev);
++err_v4l2_registration:
++	return rc;
++}
++static int __devinit __wfd_probe(struct platform_device *pdev)
++{
++	int rc = 0, c = 0;
++	struct wfd_device *wfd_dev; 
++	struct ion_client *ion_client = NULL;
++	struct msm_wfd_platform_data *wfd_priv;
++
++	WFD_MSG_DBG("__wfd_probe: E\n");
++	wfd_dev = kzalloc(sizeof(*wfd_dev)*WFD_NUM_DEVICES, GFP_KERNEL);
++	if (!wfd_dev) {
++		WFD_MSG_ERR("Could not allocate memory for "
++				"wfd device\n");
++		rc = -ENOMEM;
++		goto err_v4l2_probe;
++	}
++
++	wfd_priv = pdev->dev.platform_data;
++	if (wfd_priv && wfd_priv->wfd_check_mdp_iommu_split) {
++		wfd_dev->mdp_iommu_split_domain =
++			wfd_priv->wfd_check_mdp_iommu_split();
++	}
++
++	pdev->dev.platform_data = (void *) wfd_dev;
++
++	ion_client = msm_ion_client_create(-1, "wfd");
++
++	rc = wfd_stats_setup();
++	if (rc) {
++		WFD_MSG_ERR("No debugfs support: %d\n", rc);
++		
++		rc = 0;
++	}
++
++	if (!ion_client) {
++		WFD_MSG_ERR("Failed to create ion client\n");
++		rc = -ENODEV;
++		goto err_v4l2_probe;
++	}
++
++	for (c = 0; c < WFD_NUM_DEVICES; ++c) {
++		rc = wfd_dev_setup(&wfd_dev[c],
++			WFD_DEVICE_NUMBER_BASE + c, pdev);
++
++		if (rc) {
++			
++			for (--c; c >= 0; --c) {
++				v4l2_device_unregister_subdev(
++						&wfd_dev[c].vsg_sdev);
++				v4l2_device_unregister_subdev(
++						&wfd_dev[c].enc_sdev);
++				v4l2_device_unregister_subdev(
++						&wfd_dev[c].mdp_sdev);
++				video_unregister_device(wfd_dev[c].pvdev);
++				video_device_release(wfd_dev[c].pvdev);
++				v4l2_device_unregister(&wfd_dev[c].v4l2_dev);
++			}
++
++			goto err_v4l2_probe;
++		}
++
++		
++		mutex_init(&wfd_dev[c].dev_lock);
++		wfd_dev[c].ion_client = ion_client;
++		wfd_dev[c].in_use = false;
++		switch (WFD_DEVICE_NUMBER_BASE + c) {
++		case WFD_DEVICE_SECURE:
++			wfd_dev[c].secure_device = true;
++			break;
++		default:
++			break;
++		}
++
++	}
++	WFD_MSG_DBG("__wfd_probe: X\n");
++	return rc;
++err_v4l2_probe:
++	kfree(wfd_dev);
++	return rc;
++}
++
++static int __devexit __wfd_remove(struct platform_device *pdev)
++{
++	struct wfd_device *wfd_dev;
++	int c = 0;
++
++	wfd_dev = (struct wfd_device *)pdev->dev.platform_data;
++
++	WFD_MSG_DBG("Inside wfd_remove\n");
++	if (!wfd_dev) {
++		WFD_MSG_ERR("Error removing WFD device");
++		return -ENODEV;
++	}
++
++	wfd_stats_teardown();
++	for (c = 0; c < WFD_NUM_DEVICES; ++c) {
++		v4l2_device_unregister_subdev(&wfd_dev[c].vsg_sdev);
++		v4l2_device_unregister_subdev(&wfd_dev[c].enc_sdev);
++		v4l2_device_unregister_subdev(&wfd_dev[c].mdp_sdev);
++		video_unregister_device(wfd_dev[c].pvdev);
++		video_device_release(wfd_dev[c].pvdev);
++		v4l2_device_unregister(&wfd_dev[c].v4l2_dev);
++	}
++
++	kfree(wfd_dev);
++	return 0;
++}
++static struct platform_driver wfd_driver = {
++	.probe =  __wfd_probe,
++	.remove = __wfd_remove,
++	.driver = {
++		.name = "msm_wfd",
++		.owner = THIS_MODULE,
++	}
++};
++
++static int __init wfd_init(void)
++{
++	int rc = 0;
++	WFD_MSG_DBG("Calling init function of wfd driver\n");
++	rc = platform_driver_register(&wfd_driver);
++	if (rc) {
++		WFD_MSG_ERR("failed to load the driver\n");
++		goto err_platform_registration;
++	}
++err_platform_registration:
++	return rc;
++}
++
++static void __exit wfd_exit(void)
++{
++	WFD_MSG_DBG("wfd_exit: X\n");
++	platform_driver_unregister(&wfd_driver);
++}
++
++module_init(wfd_init);
++module_exit(wfd_exit);
+diff --git a/drivers/media/video/msm/wfd/wfd-util.c b/drivers/media/video/msm/wfd/wfd-util.c
+new file mode 100755
+index 0000000..3041407
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/wfd-util.c
+@@ -0,0 +1,217 @@
++/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 and
++ * only version 2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ */
++
++#include <linux/debugfs.h>
++#include <linux/hrtimer.h>
++#include <linux/limits.h>
++#include <linux/mm.h>
++#include <linux/slab.h>
++
++#include "wfd-util.h"
++
++static struct dentry *wfd_debugfs_root;
++
++int wfd_stats_setup()
++{
++	wfd_debugfs_root = debugfs_create_dir("wfd", NULL);
++
++	if (wfd_debugfs_root == ERR_PTR(-ENODEV))
++		return -ENODEV;
++	else if (!wfd_debugfs_root)
++		return -ENOMEM;
++	else
++		return 0;
++}
++
++void wfd_stats_teardown()
++{
++	if (wfd_debugfs_root)
++		debugfs_remove_recursive(wfd_debugfs_root);
++}
++
++int wfd_stats_init(struct wfd_stats *stats, int device)
++{
++	char device_str[NAME_MAX] = "";
++	int rc = 0;
++
++	if (!stats) {
++		rc = -EINVAL;
++		goto wfd_stats_init_fail;
++	} else if (!wfd_debugfs_root) {
++		WFD_MSG_ERR("wfd debugfs root does not exist\n");
++		rc = -ENOENT;
++		goto wfd_stats_init_fail;
++	}
++
++	memset(stats, 0, sizeof(*stats));
++	INIT_LIST_HEAD(&stats->enc_queue);
++
++	snprintf(device_str, sizeof(device_str), "%d", device);
++	stats->d_parent = debugfs_create_dir(device_str, wfd_debugfs_root);
++	if (IS_ERR(stats->d_parent)) {
++		rc = PTR_ERR(stats->d_parent);
++		stats->d_parent = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_v4l2_buf_count = debugfs_create_u32("v4l2_buf_count", S_IRUGO,
++			stats->d_parent, &stats->v4l2_buf_count);
++	if (IS_ERR(stats->d_v4l2_buf_count)) {
++		rc = PTR_ERR(stats->d_v4l2_buf_count);
++		stats->d_v4l2_buf_count = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_mdp_buf_count = debugfs_create_u32("mdp_buf_count", S_IRUGO,
++			stats->d_parent, &stats->mdp_buf_count);
++	if (IS_ERR(stats->d_mdp_buf_count)) {
++		rc = PTR_ERR(stats->d_mdp_buf_count);
++		stats->d_mdp_buf_count = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_vsg_buf_count = debugfs_create_u32("vsg_buf_count", S_IRUGO,
++			stats->d_parent, &stats->vsg_buf_count);
++	if (IS_ERR(stats->d_vsg_buf_count)) {
++		rc = PTR_ERR(stats->d_vsg_buf_count);
++		stats->d_vsg_buf_count = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_enc_buf_count = debugfs_create_u32("enc_buf_count", S_IRUGO,
++			stats->d_parent, &stats->enc_buf_count);
++	if (IS_ERR(stats->d_enc_buf_count)) {
++		rc = PTR_ERR(stats->d_enc_buf_count);
++		stats->d_enc_buf_count = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_frames_encoded = debugfs_create_u32("frames_encoded", S_IRUGO,
++			stats->d_parent, &stats->frames_encoded);
++	if (IS_ERR(stats->d_frames_encoded)) {
++		rc = PTR_ERR(stats->d_frames_encoded);
++		stats->d_frames_encoded = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_mdp_updates = debugfs_create_u32("mdp_updates", S_IRUGO,
++			stats->d_parent, &stats->mdp_updates);
++	if (IS_ERR(stats->d_mdp_updates)) {
++		rc = PTR_ERR(stats->d_mdp_updates);
++		stats->d_mdp_updates = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	stats->d_enc_avg_latency = debugfs_create_u32("enc_avg_latency",
++			S_IRUGO, stats->d_parent, &stats->enc_avg_latency);
++	if (IS_ERR(stats->d_enc_avg_latency)) {
++		rc = PTR_ERR(stats->d_enc_avg_latency);
++		stats->d_enc_avg_latency = NULL;
++		goto wfd_stats_init_fail;
++	}
++
++	return rc;
++wfd_stats_init_fail:
++	return rc;
++}
++
++int wfd_stats_update(struct wfd_stats *stats, enum wfd_stats_event event)
++{
++	int rc = 0;
++	switch (event) {
++	case WFD_STAT_EVENT_CLIENT_QUEUE:
++		stats->v4l2_buf_count++;
++		break;
++	case WFD_STAT_EVENT_CLIENT_DEQUEUE: {
++		struct wfd_stats_encode_sample *sample = NULL;
++
++		stats->v4l2_buf_count--;
++
++		if (!list_empty(&stats->enc_queue))
++			sample = list_first_entry(&stats->enc_queue,
++					struct wfd_stats_encode_sample,
++					list);
++		if (sample) {
++			ktime_t kdiff = ktime_sub(ktime_get(),
++						sample->encode_start_ts);
++			uint32_t diff = ktime_to_ms(kdiff);
++
++			stats->enc_cumulative_latency += diff;
++			stats->enc_latency_samples++;
++			stats->enc_avg_latency = stats->enc_cumulative_latency /
++				stats->enc_latency_samples;
++
++			list_del(&sample->list);
++			kfree(sample);
++			sample = NULL;
++		}
++		break;
++	}
++	case WFD_STAT_EVENT_MDP_QUEUE:
++		stats->mdp_buf_count++;
++		stats->mdp_updates++;
++		break;
++	case WFD_STAT_EVENT_MDP_DEQUEUE:
++		stats->mdp_buf_count--;
++		break;
++	case WFD_STAT_EVENT_ENC_QUEUE: {
++		struct wfd_stats_encode_sample *sample = NULL;
++
++		stats->enc_buf_count++;
++		stats->frames_encoded++;
++
++		sample = kzalloc(sizeof(*sample), GFP_KERNEL);
++		if (sample) {
++			INIT_LIST_HEAD(&sample->list);
++			sample->encode_start_ts = ktime_get();
++			list_add_tail(&sample->list, &stats->enc_queue);
++		} else {
++			WFD_MSG_WARN("Unable to measure latency\n");
++		}
++		break;
++	}
++	case WFD_STAT_EVENT_ENC_DEQUEUE:
++		stats->enc_buf_count--;
++		break;
++	case WFD_STAT_EVENT_VSG_QUEUE:
++		stats->vsg_buf_count++;
++		break;
++	case WFD_STAT_EVENT_VSG_DEQUEUE:
++		stats->vsg_buf_count--;
++		break;
++	default:
++		rc = -ENOTSUPP;
++	}
++
++	return rc;
++}
++
++int wfd_stats_deinit(struct wfd_stats *stats)
++{
++	WFD_MSG_ERR("Latencies: avg enc. latency %d",
++			stats->enc_avg_latency);
++	
++	if (stats->d_parent)
++		debugfs_remove_recursive(stats->d_parent);
++
++	stats->d_parent =
++	stats->d_v4l2_buf_count =
++	stats->d_mdp_buf_count =
++	stats->d_vsg_buf_count =
++	stats->d_enc_buf_count =
++	stats->d_frames_encoded =
++	stats->d_mdp_updates =
++	stats->d_enc_avg_latency = NULL;
++
++	return 0;
++}
+diff --git a/drivers/media/video/msm/wfd/wfd-util.h b/drivers/media/video/msm/wfd/wfd-util.h
+new file mode 100755
+index 0000000..835aa3a
+--- /dev/null
++++ b/drivers/media/video/msm/wfd/wfd-util.h
+@@ -0,0 +1,88 @@
++/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 and
++ * only version 2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ */
++
++#include <linux/debugfs.h>
++#include <linux/list.h>
++#include <linux/ktime.h>
++
++#ifndef _WFD_UTIL_H_
++#define _WFD_UTIL_H_
++
++
++#define WFD_TAG "wfd: "
++#ifdef DEBUG_WFD
++	#define WFD_MSG_INFO(fmt...) pr_info(WFD_TAG fmt)
++	#define WFD_MSG_WARN(fmt...) pr_warning(WFD_TAG fmt)
++#else
++	#define WFD_MSG_INFO(fmt...)
++	#define WFD_MSG_WARN(fmt...)
++#endif
++	#define WFD_MSG_ERR(fmt...) pr_err(KERN_ERR WFD_TAG fmt)
++	#define WFD_MSG_CRIT(fmt...) pr_crit(KERN_CRIT WFD_TAG fmt)
++	#define WFD_MSG_DBG(fmt...) pr_debug(WFD_TAG fmt)
++
++
++struct wfd_stats_encode_sample {
++	ktime_t encode_start_ts;
++	struct list_head list;
++};
++
++struct wfd_stats {
++	
++	uint32_t v4l2_buf_count;
++
++	
++	uint32_t mdp_buf_count;
++	uint32_t vsg_buf_count;
++	uint32_t enc_buf_count;
++
++	
++	uint32_t frames_encoded;
++	uint32_t mdp_updates;
++
++	uint32_t enc_avg_latency;
++	uint32_t enc_cumulative_latency;
++	uint32_t enc_latency_samples;
++	struct list_head enc_queue;
++
++	
++	struct dentry *d_parent;
++	struct dentry *d_v4l2_buf_count;
++	struct dentry *d_mdp_buf_count;
++	struct dentry *d_vsg_buf_count;
++	struct dentry *d_enc_buf_count;
++	struct dentry *d_frames_encoded;
++	struct dentry *d_mdp_updates;
++	struct dentry *d_enc_avg_latency;
++};
++
++enum wfd_stats_event {
++	WFD_STAT_EVENT_CLIENT_QUEUE,
++	WFD_STAT_EVENT_CLIENT_DEQUEUE,
++
++	WFD_STAT_EVENT_MDP_QUEUE,
++	WFD_STAT_EVENT_MDP_DEQUEUE,
++
++	WFD_STAT_EVENT_VSG_QUEUE,
++	WFD_STAT_EVENT_VSG_DEQUEUE,
++
++	WFD_STAT_EVENT_ENC_QUEUE,
++	WFD_STAT_EVENT_ENC_DEQUEUE,
++};
++
++int wfd_stats_setup(void);
++int wfd_stats_init(struct wfd_stats *, int device);
++int wfd_stats_update(struct wfd_stats *, enum wfd_stats_event);
++int wfd_stats_deinit(struct wfd_stats *);
++void wfd_stats_teardown(void);
++#endif
+diff --git a/drivers/media/video/videobuf2-core.c b/drivers/media/video/videobuf2-core.c
+index 6951a42..2e78562 100644
+--- a/drivers/media/video/videobuf2-core.c
++++ b/drivers/media/video/videobuf2-core.c
+@@ -404,8 +404,9 @@ int vb2_reqbufs(struct vb2_queue *q, struct v4l2_requestbuffers *req)
+ 	memset(q->alloc_ctx, 0, sizeof(q->alloc_ctx));
+ 	q->memory = req->memory;
+ 
+-	ret = call_qop(q, queue_setup, q, &num_buffers, &num_planes,
+-		       plane_sizes, q->alloc_ctx);
++	ret = call_qop(q, queue_setup, q, NULL, &num_buffers,
++				&num_planes, q->plane_sizes, q->alloc_ctx);
++
+ 	if (ret)
+ 		return ret;
+ 
+@@ -421,8 +422,8 @@ int vb2_reqbufs(struct vb2_queue *q, struct v4l2_requestbuffers *req)
+ 		unsigned int orig_num_buffers;
+ 
+ 		orig_num_buffers = num_buffers = ret;
+-		ret = call_qop(q, queue_setup, q, &num_buffers, &num_planes,
+-			       plane_sizes, q->alloc_ctx);
++		ret = call_qop(q, queue_setup, q, NULL, &num_buffers,
++			       &num_planes, q->plane_sizes, q->alloc_ctx);
+ 		if (ret)
+ 			goto free_mem;
+ 
+@@ -598,10 +599,13 @@ static int __qbuf_userptr(struct vb2_buffer *vb, struct v4l2_buffer *b)
+ 	return 0;
+ err:
+ 	
+-	for (; plane > 0; --plane) {
+-		call_memop(q, plane, put_userptr,
+-				vb->planes[plane - 1].mem_priv);
+-		vb->planes[plane - 1].mem_priv = NULL;
++	for (plane = 0; plane < vb->num_planes; ++plane) {
++		if (vb->planes[plane].mem_priv)
++			call_memop(q, plane, put_userptr,
++				   vb->planes[plane].mem_priv);
++		vb->planes[plane].mem_priv = NULL;
++		vb->v4l2_planes[plane].m.userptr = 0;
++		vb->v4l2_planes[plane].length = 0;
+ 	}
+ 
+ 	return ret;
+@@ -802,6 +806,23 @@ int vb2_dqbuf(struct vb2_queue *q, struct v4l2_buffer *b, bool nonblocking)
+ }
+ EXPORT_SYMBOL_GPL(vb2_dqbuf);
+ 
++static void __vb2_queue_cancel(struct vb2_queue *q)
++{
++	unsigned int i;
++
++	if (q->streaming)
++		call_qop(q, stop_streaming, q);
++	q->streaming = 0;
++
++	INIT_LIST_HEAD(&q->queued_list);
++	INIT_LIST_HEAD(&q->done_list);
++	atomic_set(&q->queued_count, 0);
++	wake_up_all(&q->done_wq);
++
++	for (i = 0; i < q->num_buffers; ++i)
++		q->bufs[i]->state = VB2_BUF_STATE_DEQUEUED;
++}
++
+ int vb2_streamon(struct vb2_queue *q, enum v4l2_buf_type type)
+ {
+ 	struct vb2_buffer *vb;
+@@ -822,45 +843,23 @@ int vb2_streamon(struct vb2_queue *q, enum v4l2_buf_type type)
+ 		return -EBUSY;
+ 	}
+ 
+-	if (V4L2_TYPE_IS_OUTPUT(q->type)) {
+-		if (list_empty(&q->queued_list)) {
+-			dprintk(1, "streamon: no output buffers queued\n");
+-			return -EINVAL;
+-		}
+-	}
++	list_for_each_entry(vb, &q->queued_list, queued_entry)
++		__enqueue_in_driver(vb);
+ 
+-	ret = call_qop(q, start_streaming, q);
++	ret = call_qop(q, start_streaming, q, atomic_read(&q->queued_count));
+ 	if (ret) {
+ 		dprintk(1, "streamon: driver refused to start streaming\n");
++		__vb2_queue_cancel(q);
+ 		return ret;
+ 	}
+ 
+ 	q->streaming = 1;
+ 
+-	list_for_each_entry(vb, &q->queued_list, queued_entry)
+-		__enqueue_in_driver(vb);
+-
+ 	dprintk(3, "Streamon successful\n");
+ 	return 0;
+ }
+ EXPORT_SYMBOL_GPL(vb2_streamon);
+ 
+-static void __vb2_queue_cancel(struct vb2_queue *q)
+-{
+-	unsigned int i;
+-
+-	if (q->streaming)
+-		call_qop(q, stop_streaming, q);
+-	q->streaming = 0;
+-
+-	INIT_LIST_HEAD(&q->queued_list);
+-	INIT_LIST_HEAD(&q->done_list);
+-	atomic_set(&q->queued_count, 0);
+-	wake_up_all(&q->done_wq);
+-
+-	for (i = 0; i < q->num_buffers; ++i)
+-		q->bufs[i]->state = VB2_BUF_STATE_DEQUEUED;
+-}
+ 
+ int vb2_streamoff(struct vb2_queue *q, enum v4l2_buf_type type)
+ {
+diff --git a/include/linux/videodev2.h b/include/linux/videodev2.h
+index 6613c56..148632d 100644
+--- a/include/linux/videodev2.h
++++ b/include/linux/videodev2.h
+@@ -1311,6 +1311,10 @@ enum v4l2_mpeg_cx2341x_video_median_filter_type {
+ #define V4L2_CID_MPEG_QCOM_BASE	(V4L2_CTRL_CLASS_MPEG | 0x2100)
+ 
+ #define V4L2_CID_MPEG_QCOM_SET_PERF_LEVEL (V4L2_CID_MPEG_QCOM_BASE + 0)
++enum v3l2_mpeg_qcom_perf_level {
++	V4L2_CID_MPEG_QCOM_PERF_LEVEL_PERFORMANCE		= 0,
++	V4L2_CID_MPEG_QCOM_PERF_LEVEL_TURBO			= 1,
++};
+ 
+ #define V4L2_CID_MPEG_MFC51_VIDEO_DECODER_H264_DISPLAY_DELAY		(V4L2_CID_MPEG_MFC51_BASE+0)
+ #define V4L2_CID_MPEG_MFC51_VIDEO_DECODER_H264_DISPLAY_DELAY_ENABLE	(V4L2_CID_MPEG_MFC51_BASE+1)
+@@ -1336,6 +1340,23 @@ enum v4l2_mpeg_mfc51_video_force_frame_type {
+ #define V4L2_CID_MPEG_MFC51_VIDEO_H264_ADAPTIVE_RC_STATIC		(V4L2_CID_MPEG_MFC51_BASE+53)
+ #define V4L2_CID_MPEG_MFC51_VIDEO_H264_NUM_REF_PIC_FOR_P		(V4L2_CID_MPEG_MFC51_BASE+54)
+ 
++#define V4L2_QCOM_BUF_FLAG_CODECCONFIG	0x4000 
++
++#define V4L2_CID_MPEG_MSM_VIDC_BASE		(V4L2_CTRL_CLASS_MPEG | 0x2000)
++
++#define V4L2_CID_MPEG_VIDC_VIDEO_H264_AU_DELIMITER \
++		(V4L2_CID_MPEG_MSM_VIDC_BASE + 22)
++enum v4l2_mpeg_vidc_video_h264_au_delimiter {
++	V4L2_MPEG_VIDC_VIDEO_H264_AU_DELIMITER_DISABLED = 0,
++	V4L2_MPEG_VIDC_VIDEO_H264_AU_DELIMITER_ENABLED = 1
++};
++
++#define V4L2_CID_MPEG_VIDC_VIDEO_H264_VUI_TIMING_INFO \
++		(V4L2_CID_MPEG_MSM_VIDC_BASE + 23)
++enum v4l2_mpeg_vidc_video_h264_vui_timing_info {
++	V4L2_MPEG_VIDC_VIDEO_H264_VUI_TIMING_INFO_DISABLED = 0,
++	V4L2_MPEG_VIDC_VIDEO_H264_VUI_TIMING_INFO_ENABLED = 1
++};
+ #define V4L2_CID_CAMERA_CLASS_BASE 	(V4L2_CTRL_CLASS_CAMERA | 0x900)
+ #define V4L2_CID_CAMERA_CLASS 		(V4L2_CTRL_CLASS_CAMERA | 1)
+ 
+diff --git a/include/media/msm/vcd_property.h b/include/media/msm/vcd_property.h
+index f48c84c..ff0da1b 100644
+--- a/include/media/msm/vcd_property.h
++++ b/include/media/msm/vcd_property.h
+@@ -55,6 +55,8 @@
+ #define VCD_I_SLICE_DELIVERY_MODE (VCD_START_BASE + 0x27)
+ #define VCD_I_VOP_TIMING_CONSTANT_DELTA (VCD_START_BASE + 0x28)
+ #define VCD_I_SET_TURBO_CLK (VCD_START_BASE + 0x29)
++#define VCD_I_ENABLE_DELIMITER_FLAG (VCD_START_BASE + 0x2A)
++#define VCD_I_ENABLE_VUI_TIMING_INFO (VCD_START_BASE + 0x2B)
+ 
+ #define VCD_START_REQ      (VCD_START_BASE + 0x1000)
+ #define VCD_I_REQ_IFRAME   (VCD_START_REQ + 0x1)
+@@ -373,4 +375,12 @@ struct vcd_property_sps_pps_for_idr_enable {
+ 	u32 sps_pps_for_idr_enable_flag;
+ };
+ 
++struct vcd_property_avc_delimiter_enable {
++	u32 avc_delimiter_enable_flag;
++};
++
++struct vcd_property_vui_timing_info_enable {
++	u32 vui_timing_info;
++};
++
+ #endif
+diff --git a/include/media/videobuf2-core.h b/include/media/videobuf2-core.h
+index 08680c8..94f3b2b 100644
+--- a/include/media/videobuf2-core.h
++++ b/include/media/videobuf2-core.h
+@@ -81,9 +81,9 @@ struct vb2_buffer {
+ };
+ 
+ struct vb2_ops {
+-	int (*queue_setup)(struct vb2_queue *q, unsigned int *num_buffers,
+-			   unsigned int *num_planes, unsigned long sizes[],
+-			   void *alloc_ctxs[]);
++	int (*queue_setup)(struct vb2_queue *q, const struct v4l2_format *fmt,
++				unsigned int *num_buffers, unsigned int *num_planes,
++				unsigned int sizes[], void *alloc_ctxs[]);
+ 
+ 	void (*wait_prepare)(struct vb2_queue *q);
+ 	void (*wait_finish)(struct vb2_queue *q);
+@@ -93,7 +93,7 @@ struct vb2_ops {
+ 	int (*buf_finish)(struct vb2_buffer *vb);
+ 	void (*buf_cleanup)(struct vb2_buffer *vb);
+ 
+-	int (*start_streaming)(struct vb2_queue *q);
++	int (*start_streaming)(struct vb2_queue *q, unsigned int count);
+ 	int (*stop_streaming)(struct vb2_queue *q);
+ 
+ 	void (*buf_queue)(struct vb2_buffer *vb);
+@@ -121,6 +121,7 @@ struct vb2_queue {
+ 	wait_queue_head_t		done_wq;
+ 
+ 	void				*alloc_ctx[VIDEO_MAX_PLANES];
++	unsigned int            plane_sizes[VIDEO_MAX_PLANES];
+ 
+ 	unsigned int			streaming:1;
+ 
+-- 
+1.8.4
+
